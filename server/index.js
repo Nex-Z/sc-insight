@@ -1,3 +1,4 @@
+import {modelSearchRoutes} from './model-search-routes.js';
 import express from 'express';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -13,6 +14,7 @@ const app=express();app.use(express.json({limit:'64kb'}));
 app.use('/api',(req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method)&&req.headers.origin){const origin=new URL(req.headers.origin);if(origin.host!==req.headers.host)return res.status(403).json({error:'不允许跨站写入'});}next();});
 app.use('/api/browser-capture',browserRoutes);
 app.use('/api',recordingRoutes);
+app.use('/api',modelSearchRoutes);
 app.get('/api/storage',async(req,res)=>res.json(await getStorage()));
 app.put('/api/storage',async(req,res)=>{try{res.json(await saveStorage(req.body.directory));}catch(e){res.status(400).json({error:e.message});}});
 app.get('/api/state',async(req,res)=>{

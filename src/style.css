@@ -16,3 +16,5 @@
 .capture-table{max-height:460px}.capture-table thead{position:sticky;top:0;background:#141a1e;z-index:1}
 .model-recording{padding:22px;margin-bottom:20px}.model-recording h2{margin:0 0 12px}.model-recording form{display:flex;align-items:end;gap:14px;flex-wrap:wrap}.model-recording label{display:flex;flex-direction:column;gap:7px;flex:1;min-width:180px}.model-recording input{width:100%;min-height:40px}.model-recording [role=status]{overflow-wrap:anywhere}.modal .model-recording{padding:0;border:0;box-shadow:none}.modal .model-recording h2{display:none}
 .model-recording .auto-record-option{flex-direction:row;align-items:center;flex:0 0 auto;min-height:40px}.model-recording .auto-record-option input{width:auto;min-height:0}
+
+.model-cover{position:relative;overflow:hidden;isolation:isolate}.model-cover-image{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}.model-cover:has(.model-cover-image)::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.4),transparent 45%,rgba(0,0,0,.8));z-index:-1}.model-cover:has(.model-cover-image) .identity{visibility:hidden}

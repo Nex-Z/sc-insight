@@ -61,3 +61,11 @@ Linux 使用 PATH 或 FFMPEG_PATH / FFPROBE_PATH 指定工具，无需安装浏�
 报告保存在 artifacts/auto-recording-verification.json；测试结束后不会保留自动录制运行。
 
 - node server/continuous-recording-check.js 主播名称：验证不分段录制超过配置时长仍保持同一任务，手动停止后归档并关闭测试配置。
+
+## 主播搜索
+
+主播管理与发现页输入关键词后，经本地 POST /api/models/search 调用官网 /api/front/v5/models/search/group/all。沿用 girls 分类，只展示 username 分组；请求最多 100 条，界面显示官网总匹配数，超过返回数量时需细化关键词。该接口不是承诺稳定的开放 API，上游变更或限流会显示错误，不回退成伪装的本地结果。
+
+搜索结果保存主播身份以供关注、监控和录制；不覆盖已有关注、笔记和采样状态，不凭搜索结果触发录制。自动录制仍独立检查公开直播间。
+
+验证：node --use-env-proxy server/model-search-ui-check.js（需要 3010 服务运行），使用隔离 HTTP 服务检查真实官网搜索、身份收录和详情入口。

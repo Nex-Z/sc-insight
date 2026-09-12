@@ -23,6 +23,8 @@ try {
  CREATE INDEX IF NOT EXISTS snapshots_model_time ON model_snapshots(model_id,sampled_at);
  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value JSONB NOT NULL);`);
  await db.query(`ALTER TABLE models ADD COLUMN IF NOT EXISTS source_id TEXT UNIQUE;
+ ALTER TABLE models ADD COLUMN IF NOT EXISTS cover_url TEXT;
+ ALTER TABLE models ADD COLUMN IF NOT EXISTS avatar_url TEXT;
  ALTER TABLE models ADD COLUMN IF NOT EXISTS room_status TEXT DEFAULT 'unknown';
  ALTER TABLE models ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
  ALTER TABLE models ALTER COLUMN growth DROP DEFAULT;
