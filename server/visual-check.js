@@ -1,0 +1,37 @@
+import { chromium, expect } from '@playwright/test';
+import fs from 'node:fs';
+fs.mkdirSync('artifacts',{recursive:true});
+const browser=await chromium.launch({channel:'chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1448,height:1086},deviceScaleFactor:1,reducedMotion:'reduce'});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.goto('http://127.0.0.1:3010');await page.getByText('采样在线主播',{exact:true}).waitFor();
+await expect(page.locator('.ranking tbody tr')).toHaveCount(5);
+await page.screenshot({path:'artifacts/dashboard.png',fullPage:true});
+await page.getByRole('button',{name:'Discover 发现主播'}).click();await expect(page.locator('.model-card')).toHaveCount(6);
+await page.screenshot({path:'artifacts/discover.png',fullPage:true});
+const modelName=await page.locator('.cover-bottom strong').first().innerText();
+await page.getByRole('textbox',{name:'关键词搜索',exact:true}).fill(modelName);
+await expect(page.locator('.model-card')).toHaveCount(1);
+await page.getByRole('button',{name:'详情',exact:true}).click();await expect(page.getByRole('heading',{name:'主播详情',exact:true})).toBeVisible();
+await page.screenshot({path:'artifacts/detail.png',fullPage:true});
+const before=await page.getByRole('textbox',{name:'个人备注',exact:true}).inputValue();
+await page.getByRole('textbox',{name:'个人备注',exact:true}).fill('E2E persistence verification');await page.getByRole('button',{name:'保存',exact:true}).click();await page.getByText('已保存',{exact:true}).waitFor();
+await page.reload();await expect(page.getByRole('textbox',{name:'个人备注',exact:true})).toHaveValue('E2E persistence verification');
+await page.getByRole('textbox',{name:'个人备注',exact:true}).fill(before);await page.getByRole('button',{name:'保存',exact:true}).click();
+await page.getByRole('button',{name:'Monitor 实时监控',exact:true}).click();await page.getByRole('button',{name:'新建规则',exact:true}).click();
+await page.getByPlaceholder('例如：高观看人数核查').fill('E2E temporary rule');await page.getByRole('button',{name:'创建规则',exact:true}).click();
+await expect(page.getByRole('switch',{name:'E2E temporary rule',exact:true})).toHaveAttribute('aria-checked','true');
+await page.getByRole('switch',{name:'E2E temporary rule',exact:true}).click();await expect(page.getByRole('switch',{name:'E2E temporary rule',exact:true})).toHaveAttribute('aria-checked','false');
+await page.getByRole('button',{name:'删除规则 E2E temporary rule',exact:true}).click();await page.getByRole('button',{name:'删除规则',exact:true}).click();await expect(page.getByRole('switch',{name:'E2E temporary rule',exact:true})).toHaveCount(0);
+await page.screenshot({path:'artifacts/monitor.png',fullPage:true});
+await page.getByRole('button',{name:'Recordings 录像管理',exact:true}).click();await page.screenshot({path:'artifacts/recordings.png',fullPage:true});
+await page.getByRole('button',{name:'Settings 系统设置',exact:true}).click();await expect(page.getByRole('textbox',{name:'录像保存目录',exact:true})).toHaveValue(/storage\\recordings/);
+await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByText('录像保存目录已更新',{exact:true}).waitFor();
+await page.setViewportSize({width:390,height:844});
+for(const [label,file] of [['Dashboard 数据总览','dashboard'],['Discover 发现主播','discover'],['Monitor 实时监控','monitor'],['Recordings 录像管理','recordings'],['Settings 系统设置','settings']]){
+ await page.getByRole('button',{name:label,exact:true}).click();await page.screenshot({path:`artifacts/mobile-${file}.png`,fullPage:true});
+ const widths=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));if(widths.scroll>widths.client)throw new Error(`Mobile overflow ${file}: ${JSON.stringify(widths)}`);
+}
+if(errors.length)throw new Error(errors.join('\n'));
+console.log('PASS: live data, filters, detail routing, persisted notes, rule create/toggle/delete, storage settings, five mobile layouts; no page errors.');
+await browser.close();
