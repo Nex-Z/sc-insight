@@ -1,3 +1,4 @@
+import {proxyRoutes,loadProxy} from './proxy.js';
 import {engagementRoutes} from './engagement-routes.js';
 import {startChatMonitor,stopChatMonitor} from './chat-monitor.js';
 import {broadcastRoutes} from './broadcast-routes.js';
@@ -19,6 +20,7 @@ const app=express();app.use(express.json({limit:'64kb'}));
 app.use('/api',(req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method)&&req.headers.origin){const origin=new URL(req.headers.origin);if(origin.host!==req.headers.host)return res.status(403).json({error:'不允许跨站写入'});}next();});
 app.get('/api/health',async(req,res)=>{try{await pool.query('SELECT 1');res.json({ok:true,worker:workerState()});}catch{res.status(503).json({ok:false});}});
 app.use('/api/browser-capture',browserRoutes);
+app.use('/api',proxyRoutes);
 app.use('/api',recordingRoutes);
 app.use('/api',modelSearchRoutes);
 app.use('/api',liveRoutes);
@@ -53,7 +55,7 @@ app.delete('/api/rules/:id',async(req,res)=>{const r=await pool.query('DELETE FR
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');app.use(express.static(path.join(root,'dist')));app.get('/{*path}',(req,res)=>res.sendFile(path.join(root,'dist/index.html')));
 app.use((err,req,res,next)=>{console.error(err.message);res.status(500).json({error:'操作失败，请检查数据库或采集服务。',detail:err.message});});
-await startWorker();
+await loadProxy();await startWorker();
 const server=app.listen(Number(process.env.PORT||3010),process.env.HOST||'127.0.0.1',()=>console.log('SC Insight http://127.0.0.1:3010'));
 await loadPolling();await startChatMonitor();let lastGeneral=0,lastTracked=0,lastAuto=0;const tick=()=>{const now=Date.now(),c=getPolling();if(now-lastGeneral>=c.generalSeconds*1000){lastGeneral=now;void collect().catch(e=>console.error('Collector:',e.message));}if(now-lastTracked>=c.trackedSeconds*1000){lastTracked=now;void collectTracked();}if(now-lastAuto>=60000){lastAuto=now;void autoRecord().catch(e=>console.error('Auto recorder:',e.message));}};tick();const timer=setInterval(tick,1000);
 let shuttingDown=false;async function shutdown(){if(shuttingDown)return;shuttingDown=true;clearInterval(timer);server.close();await stopChatMonitor();await browserCapture.disconnect();await shutdownWorker();await pool.end();process.exit();}process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);

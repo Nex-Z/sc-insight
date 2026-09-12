@@ -9,3 +9,8 @@ The application is intended for a trusted LAN and currently has no account authe
 Check `docker compose ps` and `/api/health`. Updates replace only `release`, then rebuild the app container; preserve `.env` and `data`. Stop active recordings before updates. Back up PostgreSQL with `pg_dump` and back up `data/recordings` separately. Never use `docker compose down -v` to update.
 
 Public upstream APIs can change: unresolved room statuses and long-running recording recovery remain under investigation. A successful container health check does not prove every upstream stream is available.
+## Proxy and migration
+
+System Settings → Network Proxy accepts an HTTP / HTTPS proxy and offers a connection test. Saved settings persist in PostgreSQL and are applied before workers start. For a proxy running on the NAS host, use `http://host.docker.internal:7890`; Compose supplies the host-gateway mapping. Existing streaming connections adopt changed settings on reconnect.
+
+For migration, stop the old application, back up both databases, restore into the dedicated database, copy recordings, and rewrite `recordings.directory` plus `settings.storage` to container paths. Keep migration dumps private and outside release artifacts. Do not run both instances with automatic recording enabled against the same subscriptions.
