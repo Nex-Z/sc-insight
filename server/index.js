@@ -17,6 +17,7 @@ import {browserRoutes} from './browser-routes.js';
 import {browserCapture} from './browser-capture.js';
 const app=express();app.use(express.json({limit:'64kb'}));
 app.use('/api',(req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method)&&req.headers.origin){const origin=new URL(req.headers.origin);if(origin.host!==req.headers.host)return res.status(403).json({error:'不允许跨站写入'});}next();});
+app.get('/api/health',async(req,res)=>{try{await pool.query('SELECT 1');res.json({ok:true,worker:workerState()});}catch{res.status(503).json({ok:false});}});
 app.use('/api/browser-capture',browserRoutes);
 app.use('/api',recordingRoutes);
 app.use('/api',modelSearchRoutes);

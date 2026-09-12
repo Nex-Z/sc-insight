@@ -1,0 +1,11 @@
+import fs from 'node:fs/promises';
+import {build} from 'esbuild';
+const out='artifacts/release';await fs.mkdir(out+'/server',{recursive:true});
+await build({entryPoints:['server/index.js','server/init.js'],bundle:true,platform:'node',target:'node24',format:'esm',packages:'external',minify:true,outdir:out+'/server',outExtension:{'.js':'.mjs'}});
+await fs.cp('dist',out+'/dist',{recursive:true});
+const pkg=JSON.parse(await fs.readFile('package.json','utf8'));
+const names=['dotenv','express','pg','playwright','ws','https-proxy-agent'];
+await fs.writeFile(out+'/package.json',JSON.stringify({name:'sc-insight-runtime',version:pkg.version,private:true,type:'module',dependencies:Object.fromEntries(names.map(k=>[k,pkg.dependencies[k]]))},null,2));
+for(const name of ['Dockerfile'])await fs.copyFile('deploy/'+name,out+'/'+name);
+await fs.copyFile('deploy/runtime-package-lock.json',out+'/package-lock.json');
+console.log('Runtime artifact: '+out+' (bundled backend + dist, no source tree)');
