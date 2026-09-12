@@ -14,10 +14,10 @@ try{
  const response=await fetch(base+'/api/models/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:'xinxin-1010'})});
  const result=await response.json();assert.equal(response.status,200,JSON.stringify(result));assert.ok(result.models.some(m=>m.name==='xinxin-1010'&&m.id));
  browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(base+'/#models');
- const field=page.locator('input[placeholder*="搜索"]').first();await field.fill('xinxin-1010');
+ await page.goto(base+'/#discover');
+ const field=page.getByLabel('官网用户名搜索');await field.fill('xinxin-1010');await page.getByRole('button',{name:'搜索官网',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('官网用户名搜索',{timeout:25000});
- await expect(page.locator('.model-card')).toHaveCount(Math.min(6,result.models.length));
+ await expect(page.locator('.model-card')).toHaveCount(Math.min(12,result.models.length));
  await page.locator('.model-card').filter({hasText:'xinxin-1010'}).getByRole('button',{name:'详情'}).click();
  await expect(page).toHaveURL(/#detail\//);await expect(page.locator('body')).toContainText('xinxin-1010');assert.deepEqual(errors,[]);
  console.log('PASS: live official HTTP search, persisted identity, UI search and details');

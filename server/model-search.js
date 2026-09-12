@@ -11,10 +11,10 @@ export async function searchOfficialModels(query,{fetcher=fetch}={}){
  try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>4*1024*1024)throw new Error('官网搜索响应过大');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}
  const group=JSON.parse(Buffer.concat(chunks).toString('utf8')).groups?.username;
  if(!Array.isArray(group?.models)||!Number.isInteger(group.totalCount)||group.totalCount<0)throw new Error('官网搜索响应结构变化');
- const unique=new Map();
+ const unique=new Map();let skipped=0;
  for(const m of group.models){
-  if(!/^\d+$/.test(String(m.id))||typeof m.username!=='string'||!/^[-\w]{1,80}$/.test(m.username))throw new Error('官网返回了无效主播身份');
+  if(!m||! /^[1-9]\d*$/.test(String(m.id))||(typeof m.id==='number'&&!Number.isSafeInteger(m.id))||typeof m.username!=='string'||!/^[-\w]{1,80}$/.test(m.username)){skipped++;continue;}
   unique.set(String(m.id),{source_id:String(m.id),name:m.username,country:m.country||'未知',viewers:Number.isInteger(m.viewersCount)&&m.viewersCount>=0?m.viewersCount:0,room_status:m.status||'unknown',online:m.isOnline===true||m.isLive===true,fresh:Boolean(m.status),cover_url:publicImageUrl(m.previewUrlThumbBig)||publicImageUrl(m.previewUrl),avatar_url:publicImageUrl(m.avatarUrl)});
  }
- return {models:[...unique.values()],total:group.totalCount,scope:'官网用户名搜索 · 女主播分类'};
+ return {models:[...unique.values()],total:group.totalCount,skipped,scope:'官网用户名搜索 · 女主播分类'};
 }

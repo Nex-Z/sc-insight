@@ -1,3 +1,4 @@
+import {liveRoutes} from './live-routes.js';
 import {modelSearchRoutes} from './model-search-routes.js';
 import express from 'express';
 import path from 'node:path';
@@ -15,6 +16,7 @@ app.use('/api',(req,res,next)=>{if(!['GET','HEAD','OPTIONS'].includes(req.method
 app.use('/api/browser-capture',browserRoutes);
 app.use('/api',recordingRoutes);
 app.use('/api',modelSearchRoutes);
+app.use('/api',liveRoutes);
 app.get('/api/storage',async(req,res)=>res.json(await getStorage()));
 app.put('/api/storage',async(req,res)=>{try{res.json(await saveStorage(req.body.directory));}catch(e){res.status(400).json({error:e.message});}});
 app.get('/api/state',async(req,res)=>{

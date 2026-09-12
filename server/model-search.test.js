@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {searchOfficialModels} from './model-search.js';
+test('malformed individual identities do not discard valid search results',async()=>{
+ const result=await searchOfficialModels('fixture',{fetcher:async()=>Response.json({groups:{username:{totalCount:6,models:[null,{id:0,username:'invalid'},{id:123,username:'valid_name'},{id:456,username:'../bad'},{id:789},{id:123,username:'valid_name'}]}}})});
+ assert.equal(result.models.length,1);assert.equal(result.models[0].source_id,'123');assert.equal(result.skipped,4);assert.equal(result.total,6);
+});
 test('official username group supports offline names and ignores unrelated recommendations',async()=>{
  const result=await searchOfficialModels(' a&b ',{fetcher:async url=>{
   assert.equal(url.searchParams.get('query'),'a&b');assert.equal(url.searchParams.get('primaryTag'),'girls');

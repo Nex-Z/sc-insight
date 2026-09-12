@@ -21,11 +21,14 @@
   "dependencies": {
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
+    "hls.js": "^1.7.3",
+    "https-proxy-agent": "^9.1.0",
     "lucide-react": "^0.468.0",
     "pg": "^8.16.0",
     "playwright": "^1.58.2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
