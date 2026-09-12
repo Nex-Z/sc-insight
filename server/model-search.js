@@ -15,7 +15,7 @@ export async function searchOfficialModels(query,{fetcher=fetch}={}){
  const unique=new Map();let skipped=0;
  for(const m of group.models){
   if(!m||! /^[1-9]\d*$/.test(String(m.id))||(typeof m.id==='number'&&!Number.isSafeInteger(m.id))||typeof m.username!=='string'||!/^[-\w]{1,80}$/.test(m.username)){skipped++;continue;}
-  unique.set(String(m.id),{source_id:String(m.id),snapshot_url:rememberSnapshot(m),name:m.username,country:m.country||'未知',viewers:Number.isInteger(m.viewersCount)&&m.viewersCount>=0?m.viewersCount:0,room_status:m.status||'unknown',online:m.isOnline===true||m.isLive===true,fresh:Boolean(m.status),cover_url:publicImageUrl(m.previewUrlThumbBig)||publicImageUrl(m.previewUrl),avatar_url:publicImageUrl(m.avatarUrl)});
+  unique.set(String(m.id),{source_id:String(m.id),snapshot_url:rememberSnapshot(m),name:m.username,country:m.country||'未知',viewers:Number.isInteger(m.viewersCount)&&m.viewersCount>=0?m.viewersCount:0,room_status:m.status==='off'?'offline':m.status||'unknown',online:!['off','offline','idle'].includes(m.status)&&(m.isOnline===true||m.isLive===true),fresh:Boolean(m.status),cover_url:publicImageUrl(m.previewUrlThumbBig)||publicImageUrl(m.previewUrl),avatar_url:publicImageUrl(m.avatarUrl)});
  }
  return {models:[...unique.values()],total:group.totalCount,skipped,scope:'官网用户名搜索 · 女主播分类'};
 }

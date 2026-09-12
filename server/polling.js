@@ -11,6 +11,7 @@ export const pollingState={running:false,lastFinished:null,error:null,count:0,fa
 export const getPolling=()=>({...config,tracked:pollingState});
 export async function trackedSnapshot(model,{search=searchOfficialModels,inspect=inspectPublicRoom}={}){
  const result=await search(model.name);const found=result.models.find(m=>m.source_id===model.source_id&&m.name.toLowerCase()===model.name.toLowerCase());if(!found)throw new Error('官网未返回对应身份，保留上次数据');
+ if(found.room_status==='off')found.room_status='offline';
  if(!found.fresh||!['public','private','p2p','groupShow','away','offline','idle'].includes(found.room_status)){const room=await inspect(model.name);if(String(room.modelId)!==model.source_id)throw new Error('主播身份不匹配');found.online=!['offline','idle'].includes(room.status);found.room_status=room.status;}
  found.online=!['offline','idle'].includes(found.room_status);
  return found;

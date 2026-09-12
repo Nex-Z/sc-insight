@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readInitialState,sourceFromState,resolvePublicSource} from './public-source.js';
+import {readInitialState,sourceFromState,resolvePublicSource,inspectPublicRoom} from './public-source.js';
 const fixture=()=>({viewCamBase:{model:{id:1,username:'PublicModel',status:'public',streamName:'1'}},viewCam:{streamName:'1',isCamAvailable:true},configV3:{initialCommon:{hlsStreamHost:'example.org',hlsStreamUrlTemplate:'https://edge-hls.{cdnHost}/hls/{streamName}/master/{streamName}{suffix}.m3u8'}}});
 test('parses SSR JSON without evaluating page scripts',()=>{
  const data=fixture();data.note='quoted " and braces } ]';assert.deepEqual(readInitialState(`window.__PRELOADED_STATE__ = ${JSON.stringify(data)}; throw new Error('must never execute')`),data);
@@ -21,3 +21,5 @@ test('HTTP-only discovery never starts a browser or marks unprobed media ready',
 test('rejects bad responses and invalid names without generating fallback URLs',async()=>{
  await assert.rejects(resolvePublicSource('../other'));await assert.rejects(resolvePublicSource('PublicModel',{fetcher:async()=>new Response('',{status:403})}),/403/);
 });
+
+test('off is confirmed offline; unknown statuses are still rejected',async()=>{const data=fixture();data.viewCamBase.model.status='off';const fetcher=async()=>new Response('window.__PRELOADED_STATE__ = '+JSON.stringify(data));const room=await inspectPublicRoom('PublicModel',{fetcher});assert.equal(room.status,'offline');assert.equal(room.live,false);data.viewCamBase.model.status='future-status';await assert.rejects(inspectPublicRoom('PublicModel',{fetcher}),/状态未知/);});

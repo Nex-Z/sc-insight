@@ -15,3 +15,7 @@ test('missing identities and network errors cannot become offline observations',
  await assert.rejects(trackedSnapshot(m,{search:async()=>{throw new Error('HTTP 429');}}),/429/);
  const result=await trackedSnapshot(m,{search:async()=>({models:[{name:'fixture',source_id:'1',viewers:0,fresh:false}]}),inspect:async()=>({modelId:'1',status:'offline'})});assert.equal(result.online,false);
 });
+test('official off status is offline even when account isOnline remains true',async()=>{
+ const found=await trackedSnapshot({name:'fixture',source_id:'1'},{search:async()=>({models:[{name:'fixture',source_id:'1',fresh:true,online:true,room_status:'off',viewers:94}]}),inspect:async()=>{throw Error('Known offline state must not require HTML fallback');}});
+ assert.equal(found.online,false);assert.equal(found.room_status,'offline');
+});
