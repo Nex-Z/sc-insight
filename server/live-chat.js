@@ -2,8 +2,8 @@ import WebSocket from 'ws';
 import {HttpsProxyAgent} from 'https-proxy-agent';
 
 export function chatMessage(m){
- if(!m||m.isDeleted||!m.id||typeof m.details?.body!=='string')return null;
- return {id:String(m.id),username:String(m.userData?.username||'访客').slice(0,80),text:m.details.body.slice(0,2000),type:m.type,time:m.createdAt};
+ if(!m||m.isDeleted||!m.id||(typeof m.details?.body!=='string'&&m.type!=='tip'))return null;
+ return {id:String(m.id),username:m.details?.isAnonymous?'匿名':String(m.userData?.username||'访客').slice(0,80),userId:m.details?.isAnonymous?null:m.userData?.id?String(m.userData.id):null,text:String(m.details?.body||'').slice(0,2000),type:m.type,time:m.createdAt,amount:m.type==='tip'&&Number.isSafeInteger(m.details?.amount)&&m.details.amount>=0?m.details.amount:null,anonymous:m.details?.isAnonymous===true};
 }
 export async function connectLiveChat(model,emit,{fetcher=fetch}={}){
  const config=await fetcher('https://zh.stripchat.com/api/front/v3/config/initial-dynamic?'+new URLSearchParams({requestPath:'/'+model.name}),{headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
@@ -19,15 +19,15 @@ export async function connectLiveChat(model,emit,{fetcher=fetch}={}){
   try{for(const line of bytes.toString().split('\n').filter(Boolean)){
    const data=JSON.parse(line);
    if(!Object.keys(data).length){socket.send('{}');continue;}
-   if(data.error){emit('status',{text:'聊天连接被官网拒绝，请重试或前往官网'});continue;}
+   if(data.error){emit('status',{text:'聊天连接被官网拒绝，请重试或前往官网'});emit('connection',{state:'error'});continue;}
    if(data.id===1&&data.connect)socket.send(JSON.stringify({id:2,subscribe:{channel:'newChatMessage@'+model.source_id}}));
-   if(data.id===2&&data.subscribe)emit('status',{text:'实时聊天已连接'});
-   if(data.push?.channel==='newChatMessage@'+model.source_id){const raw=data.push.pub?.data;const message=chatMessage(raw?.message||raw);if(message)emit('message',message);}
+   if(data.id===2&&data.subscribe){emit('status',{text:'实时聊天已连接'});emit('connection',{state:'connected'});}
+   if(data.push?.channel==='newChatMessage@'+model.source_id){const raw=data.push.pub?.data;const message=chatMessage(raw?.message||raw);if(message)emit('message',{...message,source:'live'});}
   }}catch{emit('status',{text:'部分聊天消息格式暂不支持'});}
  });
- socket.on('error',()=>emit('status',{text:'聊天连接失败，可点击重试'}));
- socket.on('close',()=>{if(!closed)emit('status',{text:'聊天连接已断开，可点击重试'});});
+ socket.on('error',()=>{emit('status',{text:'聊天连接失败，可点击重试'});emit('connection',{state:'error'});});
+ socket.on('close',()=>{if(!closed){emit('status',{text:'聊天连接已断开，可点击重试'});emit('connection',{state:'disconnected'});}});
  // History and live messages are deduplicated by their platform message IDs in the UI.
- void fetcher(`https://stripchat.com/api/front/v2/models/${model.source_id}/chat?source=regular`,{signal:AbortSignal.timeout(15000)}).then(async r=>{if(!r.ok)throw new Error();const j=await r.json();if(!closed)for(const m of (j.messages||[]).slice(-100)){const message=chatMessage(m);if(message)emit('message',message);}}).catch(()=>{if(!closed)emit('status',{text:'历史聊天暂不可用，等待实时消息'});});
+ void fetcher(`https://stripchat.com/api/front/v2/models/${model.source_id}/chat?source=regular`,{signal:AbortSignal.timeout(15000)}).then(async r=>{if(!r.ok)throw new Error();const j=await r.json();if(!closed)for(const m of (j.messages||[]).slice(-100)){const message=chatMessage(m);if(message)emit('message',{...message,source:'history'});}}).catch(()=>{if(!closed)emit('status',{text:'历史聊天暂不可用，等待实时消息'});});
  return ()=>{closed=true;socket.terminate();};
 }

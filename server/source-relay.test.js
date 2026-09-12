@@ -29,3 +29,16 @@ test('closing during refresh prevents renewed requests and releases resources',a
  const response=fetch(relay.url);await ready;relay.close();resolveRefresh({url:'https://cdn.example/new.m3u8'});
  assert.equal((await response).status,502);assert.equal(reads,1);assert.deepEqual(relay.stats(),{resources:0,closed:true});
 });
+
+test('transient playlist and segment failures retry without changing range or credentials',async()=>{
+ let playlists=0,segments=0;
+ const relay=await createSourceRelay({url:'https://cdn.example/live.m3u8',pageUrl:'https://example/Alice'},{fetcher:async(url,options)=>{
+ if(url.endsWith('m3u8')){if(++playlists===1)return new Response('',{status:503});return new Response('#EXTM3U\n#EXTINF:2,\nchunk.ts\n');}
+ assert.equal(options.headers.Range,'bytes=0-2');if(++segments===1)throw new TypeError('connection reset');return new Response('abc',{status:206});
+ }});
+ try{const body=await(await fetch(relay.url)).text();const segment=body.split('\n').find(l=>l.startsWith('http'));assert.equal(await(await fetch(segment,{headers:{Range:'bytes=0-2'}})).text(),'abc');assert.equal(playlists,2);assert.equal(segments,2);}finally{relay.close();}
+});
+test('authorization failures are not retried as transient segment failures',async()=>{
+ let calls=0;const relay=await createSourceRelay({url:'https://cdn.example/live.m3u8'},{fetcher:async()=>{calls++;return new Response('',{status:403});}});
+ try{assert.equal((await fetch(relay.url)).status,502);assert.equal(calls,1);}finally{relay.close();}
+});

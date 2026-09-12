@@ -24,6 +24,7 @@ export async function collect() {
    const rules=(await db.query('SELECT * FROM monitor_rules WHERE enabled=true')).rows;
    for(const m of models) {
     const old=(await db.query('SELECT * FROM models WHERE source_id=$1',[m.sourceId])).rows[0];
+    if(old&&(old.favorite||old.monitored))continue;
     const growth=old && old.viewers>0 ? Math.round((m.viewers-old.viewers)/old.viewers*100) : null;
     const {rows:[saved]}=await db.query(`INSERT INTO models(name,country,language,viewers,growth,online,color,source_id,room_status,last_seen_at)
      VALUES($1,$2,'未知',$3,$4,$5,'#8a6b77',$6,$7,now()) ON CONFLICT(source_id) DO UPDATE SET name=excluded.name,country=excluded.country,viewers=excluded.viewers,growth=excluded.growth,online=excluded.online,room_status=excluded.room_status,last_seen_at=now() RETURNING id,monitored`,[m.name,m.country,m.viewers,growth,m.online,m.sourceId,m.status]);

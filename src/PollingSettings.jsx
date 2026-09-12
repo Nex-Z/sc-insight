@@ -1,0 +1,7 @@
+import React,{useEffect,useState} from 'react';
+export default function PollingSettings({onChange}){
+ const [config,setConfig]=useState({trackedSeconds:5,generalSeconds:60}),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{fetch('/api/polling').then(r=>r.json()).then(setConfig).catch(()=>setMessage('无法读取采集配置'));},[]);
+ return <section className="panel"><h2>数据采集频率</h2><form className="directory-filters" onSubmit={async e=>{e.preventDefault();setBusy(true);try{const r=await fetch('/api/polling',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({trackedSeconds:Number(config.trackedSeconds),generalSeconds:Number(config.generalSeconds)})});const j=await r.json();if(!r.ok)throw new Error(j.error);setConfig(j);setMessage('已保存，调度自动生效');await onChange?.();}catch(e){setMessage(e.message);}finally{setBusy(false);}}}>
+ <label>关注 / 监控主播（秒）<input type="number" min="5" max="3600" required value={config.trackedSeconds} onChange={e=>setConfig({...config,trackedSeconds:e.target.value})}/></label><label>其他主播抽样（秒）<input type="number" min="5" max="3600" required value={config.generalSeconds} onChange={e=>setConfig({...config,generalSeconds:e.target.value})}/></label><button className="primary" disabled={busy}>保存采集频率</button></form><p role="status">{message}</p><p className="footnote">关注与监控名单独立查询。每轮最多同时请求 4 位，不叠加未完成的轮次；实际间隔可能受人数、网络和官网限流影响。其他主播仍为公开列表抽样。</p></section>;
+}

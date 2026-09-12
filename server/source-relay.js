@@ -2,9 +2,21 @@ import http from 'node:http';
 import {Readable} from 'node:stream';
 import {randomUUID,createHash} from 'node:crypto';
 import {sourceUrl} from './media.js';
+import {setTimeout as delay} from 'node:timers/promises';
 import {rewriteMouflon,formatById} from './mouflon.js';
 
 const sessions=new Map();let listening;
+// Retry before forwarding headers only; never append a second response to a partial segment.
+async function fetchTransient(fetcher,url,options){
+ for(let attempt=0;attempt<3;attempt++){
+  try{
+   const response=await fetcher(url,options);
+   if(![408,429,500,502,503,504].includes(response.status)||attempt===2)return response;
+   await response.body?.cancel();
+  }catch(error){if(options.signal.aborted||attempt===2)throw error;}
+  await delay(250*(attempt+1),undefined,{signal:options.signal});
+ }
+}
 async function relayPort(){
  if(!listening)listening=new Promise((resolve,reject)=>{
   const server=http.createServer(async(req,res)=>{
@@ -36,7 +48,7 @@ export async function createSourceRelay(initial,{refresh,fetcher=fetch}={}){
   return base+id+'.'+extension;
  }
  async function read(){
-  const response=await fetcher(source.url,{headers:{Referer:source.pageUrl},signal:AbortSignal.any([abort.signal,AbortSignal.timeout(15000)])});
+  const response=await fetchTransient(fetcher,source.url,{headers:{Referer:source.pageUrl},signal:AbortSignal.any([abort.signal,AbortSignal.timeout(20000)])});
   let body=await playlistBody(response);
   if(source.formatId)body=rewriteMouflon(body,formatById(source.formatId),response.url||source.url);
   if(!body.startsWith('#EXTM3U')||body.includes('#EXT-X-ENDLIST')||body.includes('#EXT-X-MOUFLON'))throw new Error('Not a live media playlist');
@@ -64,7 +76,7 @@ export async function createSourceRelay(initial,{refresh,fetcher=fetch}={}){
   const entry=resources.get(resource?.split('.')[0]);if(!entry){res.writeHead(404).end();return;}
   const requestAbort=new AbortController();res.once('close',()=>requestAbort.abort());
   const headers={...entry.headers};if(req.headers.range)headers.Range=req.headers.range;
-  const upstream=await fetcher(entry.url,{headers,signal:AbortSignal.any([abort.signal,requestAbort.signal,AbortSignal.timeout(20000)])});
+  const upstream=await fetchTransient(fetcher,entry.url,{headers,signal:AbortSignal.any([abort.signal,requestAbort.signal,AbortSignal.timeout(20000)])});
   if(!upstream.ok){await upstream.body?.cancel();throw new Error('Segment unavailable');}
   res.statusCode=upstream.status;
   for(const name of ['content-type','content-length','content-range','accept-ranges'])if(upstream.headers.has(name))res.setHeader(name,upstream.headers.get(name));

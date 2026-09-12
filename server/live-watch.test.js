@@ -27,3 +27,8 @@ test('highest resolution then frame rate outrank a lower quality stream with hig
  const manifest='#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=9000000,RESOLUTION=1280x720,FRAME-RATE=60\n720.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080,FRAME-RATE=30\n1080.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1920x1080,FRAME-RATE=60\n1080-60.m3u8';
  assert.equal(bestVariant(manifest,'https://example/'),'https://example/1080-60.m3u8');
 });
+
+test('idle is a known unavailable room state, not an endless status error',async()=>{
+ const state={viewCamBase:{model:{id:123,username:'Alice',status:'idle'}},viewCam:{isCamAvailable:false}};
+ const room=await inspectPublicRoom('Alice',{fetcher:async()=>new Response('window.__PRELOADED_STATE__ = '+JSON.stringify(state))});assert.equal(room.status,'idle');assert.equal(room.live,false);
+});

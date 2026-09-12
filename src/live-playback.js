@@ -1,5 +1,5 @@
 // Keep explicit pauses intact while recovering stalls and recoverable HLS failures.
-export function manageLivePlayback(video,{getHls,onStatus,now=()=>Date.now(),interval=setInterval,cancelInterval=clearInterval}){
+export function manageLivePlayback(video,{getHls,onStatus,onReconnect,now=()=>Date.now(),interval=setInterval,cancelInterval=clearInterval}){
  let closed=false,userPaused=false,blocked=false,playing=false,recovering=false,lastTime=video.currentTime,lastProgress=now(),lastRecovery=-Infinity,retries=0;
  const listeners=[];
  function listen(name,fn){video.addEventListener(name,fn);listeners.push([name,fn]);}
@@ -13,7 +13,7 @@ export function manageLivePlayback(video,{getHls,onStatus,now=()=>Date.now(),int
  }
  function recover(mediaError=false){
   if(closed||userPaused||blocked||now()-lastRecovery<8000)return;
-  if(retries>=3){onStatus('直播持续中断，请重新连接');return;}
+  if(retries>=3){onStatus('直播中断，稍后自动重连…');if(now()-lastRecovery>=30000){lastRecovery=now();if(onReconnect){blocked=true;onReconnect();}else retries=0;}return;}
   lastRecovery=now();retries++;recovering=true;onStatus('正在恢复直播…');
   const hls=getHls();
   if(hls){if(mediaError)hls.recoverMediaError();else hls.startLoad(-1);

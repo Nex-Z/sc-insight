@@ -1,3 +1,5 @@
+import {chatSchema} from './chat-monitor.js';
+import {broadcastSchema} from './broadcast-history.js';
 import 'dotenv/config';
 import pg from 'pg';
 import {recordingSchema} from './recording-schema.js';
@@ -20,6 +22,7 @@ try {
  CREATE TABLE IF NOT EXISTS recordings (id SERIAL PRIMARY KEY,model_id INTEGER REFERENCES models(id),filename TEXT NOT NULL,status TEXT NOT NULL DEFAULT '待接入',duration TEXT DEFAULT '—',size TEXT DEFAULT '—',created_at TIMESTAMPTZ DEFAULT now());
  CREATE TABLE IF NOT EXISTS events (id SERIAL PRIMARY KEY,model_id INTEGER REFERENCES models(id),title TEXT NOT NULL,detail TEXT NOT NULL,created_at TIMESTAMPTZ DEFAULT now());
  CREATE TABLE IF NOT EXISTS model_snapshots (id BIGSERIAL PRIMARY KEY,model_id INTEGER REFERENCES models(id),viewers INTEGER NOT NULL,online BOOLEAN NOT NULL,sampled_at TIMESTAMPTZ NOT NULL DEFAULT now());
+ ALTER TABLE model_snapshots ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'general';
  CREATE INDEX IF NOT EXISTS snapshots_model_time ON model_snapshots(model_id,sampled_at);
  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value JSONB NOT NULL);`);
  await db.query(`ALTER TABLE models ADD COLUMN IF NOT EXISTS source_id TEXT UNIQUE;
@@ -31,6 +34,8 @@ try {
  ALTER TABLE models ALTER COLUMN growth DROP NOT NULL;
  CREATE TABLE IF NOT EXISTS collection_runs (id BIGSERIAL PRIMARY KEY,started_at TIMESTAMPTZ DEFAULT now(),finished_at TIMESTAMPTZ,count INTEGER DEFAULT 0,status TEXT NOT NULL,error TEXT);`);
  await recordingSchema(db);
+ await db.query(broadcastSchema);
+ await db.query(chatSchema);
  await db.query('COMMIT');
  console.log(`Database ${database} ready; schema installed idempotently.`);
 } catch(e) { await db.query('ROLLBACK'); throw e; } finally { await db.end(); }
