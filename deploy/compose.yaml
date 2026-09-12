@@ -15,7 +15,7 @@ services:
       timeout: 5s
       retries: 12
   app:
-    image: sc-insight:0.1.0
+    image: sc-insight:0.1.1
     build: ./release
     ports:
       - "${APP_PORT:-13010}:3010"
