@@ -1,10 +1,11 @@
+import {rememberSnapshot} from './snapshot-hints.js';
 import {pool} from './db.js';
 export function normalizeModels(payload) {
  if (!Array.isArray(payload.blocks)) throw new Error('上游响应结构变化：缺少 blocks');
  const unique=new Map();
  for(const block of payload.blocks) for(const m of block.models||[]) {
   if(!m.id || typeof m.username!=='string' || !Number.isInteger(m.viewersCount) || m.viewersCount<0) continue;
-  unique.set(String(m.id),{sourceId:String(m.id),name:m.username,country:m.country||'未知',viewers:m.viewersCount,online:m.isOnline===true || m.isLive===true || m.status==='public',status:m.status||'unknown'});
+  unique.set(String(m.id),{sourceId:String(m.id),snapshot_url:rememberSnapshot(m),name:m.username,country:m.country||'未知',viewers:m.viewersCount,online:m.isOnline===true || m.isLive===true || m.status==='public',status:m.status||'unknown'});
  }
  if(!unique.size) throw new Error('上游未返回有效主播数据，保留上次采样');
  return [...unique.values()];

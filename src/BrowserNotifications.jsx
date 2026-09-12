@@ -1,3 +1,4 @@
+import {notificationState} from './notification-state.js';
 import React,{useEffect,useState,useRef} from 'react';
 const prefix='sc-notifications:';
 const read=(key,fallback='0')=>{try{return localStorage.getItem(prefix+key)||fallback;}catch{return fallback;}};
@@ -30,6 +31,6 @@ export function useNotifications(events,loaded,page){
  setRequesting(true);setFeedback('等待浏览器授权，请查看地址栏附近的权限提示。');permissionTimer.current=setTimeout(()=>setFeedback('浏览器尚未返回授权结果。内置浏览器可能不提供权限弹窗，请复制当前地址到 Chrome / Edge 后开启通知。'),8000);
  try{const p=await Notification.requestPermission();setPermission(p);if(p==='granted'){write('delivered',newest(events));write('enabled','1');setEnabled(true);setFeedback('通知已开启。点击“发送测试通知”验证系统弹窗。');}else{setFeedback('');setError(p==='denied'?'通知权限被拒绝，请在浏览器网站设置中允许通知':'未获得通知权限。若没有看到授权框，请在 Chrome / Edge 中打开此地址后重试。');}}catch(e){setFeedback('');setError(e.message);}finally{clearTimeout(permissionTimer.current);setRequesting(false);}}
 
- return {unread:unreadEvents(events,seen).length,enabled,permission,supported,error,requesting,feedback,testNotification,toggle,markRead};
+ return {unread:unreadEvents(events,seen).length,enabled,permission,secure:!!globalThis.isSecureContext,available:!!globalThis.Notification,supported,error,requesting,feedback,testNotification,toggle,markRead};
 }
-export function BrowserNotificationSetting({notifications:n}){const active=n.enabled&&n.permission==='granted';return <div className="browser-notification-setting"><div className="notification-row"><div><strong>浏览器通知</strong><small>{active?'已启用 · 页面保持打开时接收新事件':n.permission==='denied'?'浏览器已阻止通知':n.supported?'尚未开启':'当前浏览器不支持'}</small></div><button onClick={n.toggle} disabled={n.requesting||!n.supported}>{n.requesting?'等待授权…':active?'关闭通知':'开启通知'}</button>{active&&<button onClick={n.testNotification}>发送测试通知</button>}</div>{n.feedback&&<p role="status" className="notification-feedback">{n.feedback}</p>}{n.error&&<p role="alert">{n.error}</p>}{!n.supported&&<p>请在 Chrome / Edge 中打开此页面，使用 HTTPS 或 localhost。</p>}<small>已读状态保存在当前浏览器；关闭所有页面后不接收系统通知。</small></div>;}
+export function BrowserNotificationSetting({notifications:n}){const view=notificationState(n);return <div className="browser-notification-setting"><div className="notification-row"><div><strong>浏览器通知</strong><small>{view.title}</small></div>{view.action&&<button onClick={n.toggle} disabled={view.disabled}>{view.action}</button>}{view.active&&<button onClick={n.testNotification}>发送测试通知</button>}</div>{view.help&&<p className="notification-help">{view.help}</p>}{!view.help&&n.feedback&&<p role="status" className="notification-feedback">{n.feedback}</p>}{!view.help&&n.error&&<p role="alert">{n.error}</p>}{view.action&&<small>页面保持打开时接收新事件；关闭所有页面后不接收系统通知。</small>}</div>;}

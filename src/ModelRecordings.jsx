@@ -2,7 +2,7 @@ import React,{useEffect,useState} from 'react';
 export function AutoRecordToggle({model,onChange}){
  const [busy,setBusy]=useState(false),[error,setError]=useState('');
  async function toggle(){setBusy(true);setError('');try{const r=await fetch(model.auto_record?`/api/recording-sources/${model.id}`:'/api/recordings/by-target',{method:model.auto_record?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(model.auto_record?{auto_record:false}:{target:model.name,auto_record:true,until_offline:true,max_seconds:3600})});const j=await r.json();if(!r.ok)throw Error(j.error||'保存失败');await onChange();}catch(e){setError(e.message);}finally{setBusy(false);}}
- return <div className="md-auto-record" title="最高画质 · 录到下线 · 关闭开关不停止当前录制"><label className="auto-record-toggle"><span>上线自动录制</span><button role="switch" aria-label="上线自动录制" aria-checked={!!model.auto_record} disabled={busy} onClick={toggle}>{busy?'保存中':model.auto_record?'已开启':'已关闭'}</button></label>{error&&<p role="alert">{error}</p>}</div>;
+ return <div className="md-auto-record" title="最高画质 · 录到下线 · 关闭开关不停止当前录制"><label className="auto-record-choice" aria-busy={busy}><input type="checkbox" aria-label="上线自动录制" checked={!!model.auto_record} disabled={busy} onChange={toggle}/><span>{busy?'保存中…':'上线自动录制'}</span></label>{error&&<p role="alert">{error}</p>}</div>;
 }
 export default function ModelRecordings({model,recordings=[]}){
  const [limit,setLimit]=useState(8);

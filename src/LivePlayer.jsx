@@ -1,12 +1,19 @@
+import {useLivePoster} from './use-live-poster.js';
+import {LiveRoomInfo} from './PublicModelInfo.jsx';
+import LiveRecentStats from './LiveRecentStats.jsx';
+import LiveSessionStats from './LiveSessionStats.jsx';
 import {manageLivePlayback} from './live-playback.js';
-import React,{useEffect,useRef,useState} from 'react';
+import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
 import Hls from 'hls.js';
 import WatchLiveLink from './WatchLiveLink.jsx';
-import {ArrowLeft,Heart,Video,RefreshCw,ExternalLink} from 'lucide-react';
-export default function LivePlayer({model,onBack,onDetails,onFollow,onRecord}){
- const video=useRef(null),bottom=useRef(null);const [attempt,setAttempt]=useState(0),[status,setStatus]=useState('正在解析直播…'),[chatStatus,setChatStatus]=useState('等待直播连接'),[messages,setMessages]=useState([]);
+import {ArrowLeft,Heart,Video,RefreshCw,ExternalLink,Maximize,Minimize,Pin} from 'lucide-react';
+export default function LivePlayer({model,onBack,onFollow,onRecord,refreshSeconds=5}){
+ const poster=useLivePoster(model);
+ const stage=useRef(null),screen=useRef(null),chatLog=useRef(null),followChat=useRef(true),hideTimer=useRef(null);
+ const [fullscreen,setFullscreen]=useState(false),[pinned,setPinned]=useState(false),[chatVisible,setChatVisible]=useState(true),[playerHeight,setPlayerHeight]=useState(400);
+ const video=useRef(null);const [attempt,setAttempt]=useState(0),[status,setStatus]=useState('正在解析直播…'),[chatStatus,setChatStatus]=useState('等待直播连接'),[messages,setMessages]=useState([]);
  useEffect(()=>{
-  let disposed=false,id,hls,events,playback;setMessages([]);setStatus('正在解析直播…');setChatStatus('等待直播连接');
+  let disposed=false,id,hls,events,playback;followChat.current=true;setMessages([]);setStatus('正在解析直播…');setChatStatus('等待直播连接');
   const release=()=>{if(id)fetch('/api/live/'+id,{method:'DELETE',keepalive:true}).catch(()=>{});};
   (async()=>{try{
    const response=await fetch('/api/live',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_id:model.id})});const session=await response.json();if(!response.ok)throw new Error(session.error);id=session.id;if(disposed){release();return;}
@@ -19,13 +26,20 @@ export default function LivePlayer({model,onBack,onDetails,onFollow,onRecord}){
   window.addEventListener('pagehide',release);
   return()=>{disposed=true;window.removeEventListener('pagehide',release);events?.close();playback?.close();hls?.destroy();const element=video.current;if(element){element.pause();element.removeAttribute('src');element.load();}release();};
  },[model.id,attempt]);
- useEffect(()=>{const log=bottom.current?.parentElement;if(log&&log.scrollHeight-log.scrollTop-log.clientHeight<180)log.scrollTop=log.scrollHeight;},[messages]);
+ useLayoutEffect(()=>{const log=chatLog.current;if(log&&followChat.current)log.scrollTop=log.scrollHeight;},[messages,fullscreen,playerHeight]);
+ useEffect(()=>{const resize=new ResizeObserver(()=>{if(!document.fullscreenElement)setPlayerHeight(screen.current.getBoundingClientRect().height);});resize.observe(screen.current);const changed=()=>{setFullscreen(document.fullscreenElement===stage.current);setChatVisible(true);};document.addEventListener('fullscreenchange',changed);return()=>{resize.disconnect();clearTimeout(hideTimer.current);document.removeEventListener('fullscreenchange',changed);};},[]);
+ async function toggleFullscreen(){try{if(document.fullscreenElement===stage.current)await document.exitFullscreen();else await stage.current.requestFullscreen();}catch{setStatus('当前浏览器无法进入全屏');}}
+ function revealChat(event){if(!fullscreen)return;clearTimeout(hideTimer.current);setChatVisible(true);if(!event.target.closest('.live-chat'))hideTimer.current=setTimeout(()=>setChatVisible(false),2500);}
  return <section className="live-room" aria-label={`${model.name} 的直播间`}>
-  <header className="live-room-nav"><button onClick={onBack}><ArrowLeft size={17}/>发现主播</button><span>直播间 / <strong>{model.name}</strong></span><WatchLiveLink model={model}/></header>
-  <div className="live-room-stage">
-   <div className="live-room-screen"><video ref={video} controls playsInline poster={model.cover_url||model.avatar_url||undefined}/><div className="live-room-player-status"><span role="status">{status}</span><button onClick={()=>setAttempt(n=>n+1)}><RefreshCw size={14}/>重新连接</button></div></div>
-   <aside className="live-chat"><header><h2>聊天室</h2><span>只读</span></header><p className="live-chat-status" role="status">{chatStatus}</p><div className="live-chat-messages" role="log" aria-label="直播聊天">{messages.map(m=><p key={m.id}><strong>{m.username}：</strong>{m.text}</p>)}{!messages.length&&<p className="muted">等待聊天消息…</p>}<div ref={bottom}/></div><footer>公开聊天 · 发言请前往官网</footer></aside>
+  <header className="live-room-nav"><button onClick={onBack}><ArrowLeft size={17}/>返回</button><span>直播间 / <strong>{model.name}</strong></span><WatchLiveLink model={model}/></header>
+  <section className="live-room-info"><div><span className="live-room-eyebrow">主播</span><h1>{model.name}</h1><p>平台 ID {model.source_id} <span>·</span> 默认最高可用画质</p></div><div className="live-room-actions"><button onClick={onFollow} className={model.favorite?'active':''}><Heart size={17}/>{model.favorite?'已关注':'关注主播'}</button><a className="live-detail-link" href={`#detail/${model.id}`} target="_blank" rel="noopener noreferrer" title="在新标签页查看主播详情"><ExternalLink size={17}/>主播详情</a><button className="primary" onClick={onRecord}><Video size={17}/>录制直播</button></div></section>
+  <div ref={stage} className={`live-room-stage ${fullscreen?'is-fullscreen':''} ${pinned||chatVisible?'chat-visible':''}`} style={{'--player-height':`${playerHeight}px`}} onPointerMove={revealChat} onPointerLeave={()=>{clearTimeout(hideTimer.current);setChatVisible(false);}}>
+   <div ref={screen} className="live-room-screen"><div className="live-video-wrap"><video ref={video} controls controlsList="nofullscreen" onDoubleClick={toggleFullscreen} playsInline poster={poster}/><button className="live-fullscreen-button" aria-label={fullscreen?'退出全屏':'全屏观看'} onClick={toggleFullscreen}>{fullscreen?<Minimize size={16}/>:<Maximize size={16}/>}</button></div><div className="live-room-player-status"><span role="status">{status}</span><button onClick={()=>setAttempt(n=>n+1)}><RefreshCw size={14}/>重新连接</button></div></div>
+   <aside className="live-chat" onPointerLeave={()=>{if(fullscreen)setChatVisible(false);}}><header><h2>聊天室</h2>{fullscreen?<button aria-label="固定全屏弹幕" aria-pressed={pinned} onClick={()=>setPinned(v=>!v)}><Pin size={14}/>{pinned?'已固定':'移出隐藏'}</button>:<span>只读</span>}</header><p className="live-chat-status" role="status">{chatStatus}</p><div ref={chatLog} onScroll={e=>{const el=e.currentTarget;followChat.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}} className="live-chat-messages" role="log" aria-label="直播聊天">{messages.map(m=><p key={m.id}><span className={'chat-author chat-role-'+(m.role||'user')}>{m.role==='host'&&<b className="chat-badge">主播</b>}{m.role==='model'&&<b className="chat-badge">主播访客</b>}{m.level!=null&&<b className="chat-level" title={m.league||undefined}>Lv.{m.level}</b>}{m.badges?.map(b=><b key={b} className="chat-badge">{b}</b>)}<strong>{m.username}：</strong></span>{m.text||'互动消息'}</p>)}{!messages.length&&<p className="muted">等待聊天消息…</p>}</div><footer>公开聊天 · 发言请前往官网</footer></aside>
   </div>
-  <section className="live-room-info"><div><span className="live-room-eyebrow">主播</span><h1>{model.name}</h1><p>平台 ID {model.source_id} <span>·</span> 默认最高可用画质</p></div><div className="live-room-actions"><button onClick={onFollow} className={model.favorite?'active':''}><Heart size={17}/>{model.favorite?'已关注':'关注主播'}</button><button onClick={onDetails}><ExternalLink size={17}/>主播详情</button><button className="primary" onClick={onRecord}><Video size={17}/>录制直播</button></div></section>
+
+ <LiveRoomInfo key={model.id} model={model}/>
+ <LiveSessionStats key={model.id} model={model} refreshSeconds={refreshSeconds}/>
+ <LiveRecentStats key={model.id} model={model}/>
  </section>;
 }

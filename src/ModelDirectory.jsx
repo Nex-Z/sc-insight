@@ -2,7 +2,7 @@ import React,{useState,useRef,useEffect} from 'react';
 import {filterDirectory} from './directory-filters.js';
 const regionNames=new Intl.DisplayNames(['zh-CN'],{type:'region'});
 function regionLabel(code){try{return code==='未知'?code:regionNames.of(code.toUpperCase())||code;}catch{return code;}}
-export default function ModelDirectory({mode,models,Card,onResults,initialQuery='',onDiscover}){
+export default function ModelDirectory({mode,models,Card,cardProps,onResults,initialQuery='',onDiscover}){
  const discover=mode==='discover';
  const [query,setQuery]=useState(initialQuery),[online,setOnline]=useState('all'),[sort,setSort]=useState('viewers');
  const [region,setRegion]=useState('all'),[group,setGroup]=useState('all'),[min,setMin]=useState(''),[max,setMax]=useState('');
@@ -36,7 +36,7 @@ export default function ModelDirectory({mode,models,Card,onResults,initialQuery=
   </form>
   {discover&&<p className="footnote">条件筛选作用于本次官网返回的结果，点击搜索后生效；未提供地区或采样变化的资料不会补造数值。</p>}
   <p role="status" className="footnote">{error|| (discover?busy?'正在搜索官网…':result?`官网用户名搜索 · 女主播分类 · 返回 ${result.models.length} / ${result.total} 位 · 筛选后 ${rows.length} 位${result.skipped?` · 已略过 ${result.skipped} 条无法识别的资料`:``}`:'输入用户名并点击搜索；修改条件后再次点击搜索生效。':`我的关注 ${models.filter(m=>m.favorite).length} 位 · 在线 ${models.filter(m=>m.favorite&&m.online&&m.fresh).length} 位 · 状态和人数为最近采样，过期显示待更新`)}</p>
-  <div className="model-grid">{rows.slice((current-1)*12,current*12).map(m=><Card key={m.id} m={m}/>)}</div>
+  <div className="model-grid">{rows.slice((current-1)*12,current*12).map(m=><Card key={m.id} m={m} {...cardProps}/>)}</div>
   {!rows.length&&!busy&&<div className="empty"><strong>{discover?result?'没有符合条件的主播':'搜索官网，发现主播':'暂无符合条件的关注主播'}</strong><span>{discover?'可按完整用户名搜索，在结果中点击关注。':'在发现主播中点击关注后，会出现在这里。'}</span></div>}
   {rows.length>0&&<div className="pagination"><button disabled={current<=1} onClick={()=>setPage(current-1)}>上一页</button><span>{current} / {count} · {rows.length} 位</span><button disabled={current>=count} onClick={()=>setPage(current+1)}>下一页</button></div>}
  </section>;

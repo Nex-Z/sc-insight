@@ -1,3 +1,5 @@
+import {snapshotHint} from './snapshot-hints.js';
+import {publicInfoRoutes} from './public-info-routes.js';
 import {proxyRoutes,loadProxy} from './proxy.js';
 import {engagementRoutes} from './engagement-routes.js';
 import {startChatMonitor,stopChatMonitor} from './chat-monitor.js';
@@ -24,6 +26,7 @@ app.use('/api',proxyRoutes);
 app.use('/api',recordingRoutes);
 app.use('/api',modelSearchRoutes);
 app.use('/api',liveRoutes);
+app.use('/api',publicInfoRoutes);
 app.use('/api',broadcastRoutes);
 app.use('/api',engagementRoutes);
 app.get('/api/polling',(req,res)=>res.json(getPolling()));
@@ -35,7 +38,7 @@ app.get('/api/state',async(req,res)=>{
  pool.query("SELECT m.*, m.last_seen_at > now()-make_interval(secs => CASE WHEN m.favorite OR m.monitored THEN $1::double precision ELSE $2::double precision END) AS fresh, s.model_id IS NOT NULL AS has_source, coalesce(s.auto_record,false) AS auto_record, coalesce(s.until_offline,false) AS until_offline FROM models m LEFT JOIN recording_sources s ON s.model_id=m.id ORDER BY m.viewers DESC",[Math.max(20,getPolling().trackedSeconds*3),Math.max(180,getPolling().generalSeconds*3)]),pool.query('SELECT * FROM monitor_rules ORDER BY id'),pool.query('SELECT r.id,r.model_id,r.filename,r.status,r.duration,r.size,r.created_at,r.directory,r.bytes,r.duration_seconds,r.max_seconds,r.until_offline,r.started_at,r.finished_at,r.error,m.name FROM recordings r LEFT JOIN models m ON m.id=r.model_id ORDER BY r.created_at DESC'),pool.query('SELECT e.*,m.name FROM events e LEFT JOIN models m ON m.id=e.model_id ORDER BY e.created_at DESC LIMIT 50'),pool.query('SELECT * FROM collection_runs ORDER BY id DESC LIMIT 1'),
  pool.query("SELECT time,sum(viewers)::float AS value FROM (SELECT date_trunc('minute',sampled_at) AS time,model_id,avg(viewers) AS viewers FROM model_snapshots WHERE sampled_at>now()-interval '24 hours' AND scope='general' GROUP BY 1,2) samples GROUP BY time ORDER BY time"),
  pool.query("SELECT extract(isodow from time AT TIME ZONE 'Asia/Hong_Kong')::int AS day,extract(hour from time AT TIME ZONE 'Asia/Hong_Kong')::int AS hour,avg(viewers)::float AS value FROM (SELECT date_trunc('minute',sampled_at) AS time,model_id,avg(viewers) AS viewers FROM model_snapshots WHERE sampled_at>now()-interval '7 days' AND scope='general' GROUP BY 1,2) samples GROUP BY 1,2")]);
- res.json({polling:getPolling(),worker:workerState(),models:models.rows,rules:rules.rows,recordings:recordings.rows,events:events.rows,collector:runs.rows[0]||null,history:history.rows,heatmap:heatmap.rows,mode:'live',scope:`公开列表抽样 · 每 ${getPolling().generalSeconds} 秒采集 · 非全站统计`});
+ res.json({polling:getPolling(),worker:workerState(),models:models.rows.map(m=>({...m,snapshot_url:m.online&&m.room_status==='public'?snapshotHint(m.source_id):null})),rules:rules.rows,recordings:recordings.rows,events:events.rows,collector:runs.rows[0]||null,history:history.rows,heatmap:heatmap.rows,mode:'live',scope:`公开列表抽样 · 每 ${getPolling().generalSeconds} 秒采集 · 非全站统计`});
 });
 app.post('/api/collect',async(req,res)=>{res.json(await collect());});
 app.patch('/api/models/:id',async(req,res)=>{
@@ -59,5 +62,3 @@ await loadProxy();await startWorker();
 const server=app.listen(Number(process.env.PORT||3010),process.env.HOST||'127.0.0.1',()=>console.log('SC Insight http://127.0.0.1:3010'));
 await loadPolling();await startChatMonitor();let lastGeneral=0,lastTracked=0,lastAuto=0;const tick=()=>{const now=Date.now(),c=getPolling();if(now-lastGeneral>=c.generalSeconds*1000){lastGeneral=now;void collect().catch(e=>console.error('Collector:',e.message));}if(now-lastTracked>=c.trackedSeconds*1000){lastTracked=now;void collectTracked();}if(now-lastAuto>=60000){lastAuto=now;void autoRecord().catch(e=>console.error('Auto recorder:',e.message));}};tick();const timer=setInterval(tick,1000);
 let shuttingDown=false;async function shutdown(){if(shuttingDown)return;shuttingDown=true;clearInterval(timer);server.close();await stopChatMonitor();await browserCapture.disconnect();await shutdownWorker();await pool.end();process.exit();}process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
-
-

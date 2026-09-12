@@ -2,8 +2,18 @@ import WebSocket from 'ws';
 import {HttpsProxyAgent} from 'https-proxy-agent';
 
 export function chatMessage(m){
- if(!m||m.isDeleted||!m.id||(typeof m.details?.body!=='string'&&m.type!=='tip'))return null;
- return {id:String(m.id),username:m.details?.isAnonymous?'匿名':String(m.userData?.username||'访客').slice(0,80),userId:m.details?.isAnonymous?null:m.userData?.id?String(m.userData.id):null,text:String(m.details?.body||'').slice(0,2000),type:m.type,time:m.createdAt,amount:m.type==='tip'&&Number.isSafeInteger(m.details?.amount)&&m.details.amount>=0?m.details.amount:null,anonymous:m.details?.isAnonymous===true};
+ if(!m||m.isDeleted||!m.id)return null;
+ const d=m.details||{},u=m.userData||{},extra=m.additionalData||{},anonymous=d.isAnonymous===true;
+ const amount=['tip','privateTip'].includes(m.type)&&Number.isSafeInteger(d.amount)&&d.amount>=0?d.amount:null;
+ let text=typeof d.body==='string'?d.body.trim():'';
+ if(['tip','privateTip'].includes(m.type))text=(d.source==='tipMenu'?'小费菜单 · ':'')+(amount==null?'打赏（金额未知）':`打赏 ${amount} TK`)+(text?' · '+text:'');
+ else if(m.type==='lovense')text=typeof d.lovenseDetails?.text==='string'&&d.lovenseDetails.text.trim()?d.lovenseDetails.text.trim():'设备互动';
+ else if(m.type==='thresholdGoal')text='直播目标'+(text?'：'+text:'已更新');
+ if(!text){if(m.type==='text'||typeof m.type!=='string')return null;text='互动事件（内容暂不支持）';}
+ const ranking=!anonymous&&u.userRanking;
+ const badges=anonymous?[]:[extra.isKnight?'房管':null,extra.isStudioModerator?'工作室房管':null,u.isAdmin||u.isSupport?'平台人员':null,u.isUltimate?'会员':null,d.fanClubTier?'粉丝团':null].filter(Boolean);
+ return {id:String(m.id),username:anonymous?'匿名':String(u.username||'访客').slice(0,80),userId:anonymous?null:u.id?String(u.id):null,text:text.slice(0,2000),type:m.type,tipMenu:d.source==='tipMenu'&&['tip','privateTip'].includes(m.type),time:m.createdAt,amount,anonymous,
+ role:anonymous?'anonymous':u.isModel?(String(u.id)===String(m.modelId)?'host':'model'):'user',level:ranking&&Number.isInteger(ranking.level)&&ranking.level>=0?ranking.level:null,league:ranking&&typeof ranking.league==='string'?ranking.league:null,badges};
 }
 export async function connectLiveChat(model,emit,{fetcher=fetch}={}){
  const config=await fetcher('https://zh.stripchat.com/api/front/v3/config/initial-dynamic?'+new URLSearchParams({requestPath:'/'+model.name}),{headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
