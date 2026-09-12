@@ -1,19 +1,5 @@
 name: sc-insight
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: sc_insight
-      POSTGRES_USER: sc_insight
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: [CMD-SHELL, pg_isready -U sc_insight -d sc_insight]
-      interval: 10s
-      timeout: 5s
-      retries: 12
   app:
     image: sc-insight:0.1.3
     build: ./release
@@ -22,19 +8,16 @@ services:
     ports:
       - "${APP_PORT:-13010}:3010"
     environment:
-      PGHOST: db
-      PGPORT: 5432
-      PGDATABASE: sc_insight
-      PGUSER: sc_insight
-      PGPASSWORD: ${DB_PASSWORD}
+      PGHOST: ${PGHOST:-host.docker.internal}
+      PGPORT: ${PGPORT:-15432}
+      PGDATABASE: ${PGDATABASE:-sc_insight_app}
+      PGUSER: ${PGUSER:-sc_insight_app}
+      PGPASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
       HOST: 0.0.0.0
       PORT: 3010
       RECORDING_CONCURRENCY: ${RECORDING_CONCURRENCY:-2}
     volumes:
       - ./data/recordings:/app/storage/recordings
-    depends_on:
-      db:
-        condition: service_healthy
     init: true
     restart: unless-stopped
     stop_grace_period: 30s
