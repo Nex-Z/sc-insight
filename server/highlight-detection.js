@@ -8,6 +8,18 @@ export function validateHighlightSettings(value={}){
  const p=value.goalNearPercent??1;if(typeof p!=='number'||!Number.isFinite(p)||p<0.1||p>20)throw new Error('目标剩余比例须为 0.1–20%');out.goalNearPercent=p;
  return out;
 }
+// Robust prior trend: isolated bad counts must not manufacture acceleration.
+function viewerTrend(samples,origin){
+ const median=values=>{const a=values.sort((a,b)=>a-b),i=Math.floor(a.length/2);return a.length%2?a[i]:(a[i-1]+a[i])/2;};
+ const slopes=[];
+ for(let i=0;i<samples.length;i++)for(let j=i+1;j<samples.length;j++){
+  const minutes=(samples[j].t-samples[i].t)/60000;
+  if(minutes>=0.5)slopes.push((samples[j].viewers-samples[i].viewers)/minutes);
+ }
+ const slope=Math.max(0,slopes.length?median(slopes):0);
+ const level=median(samples.map(o=>o.viewers-slope*(o.t-origin)/60000));
+ return {slope,at:t=>Math.max(0,level+slope*(t-origin)/60000)};
+}
 // Require continuous observations from this buffer's lifetime, never pre-monitor history.
 export function detectHighlight({now,since,observations,tips=[],coverage=[],settings=highlightDefaults}){
  const samples=observations.map(o=>({...o,t:new Date(o.observed_at).getTime()})).filter(o=>o.t>=since&&o.t<=now).sort((a,b)=>a.t-b.t);
@@ -16,8 +28,11 @@ export function detectHighlight({now,since,observations,tips=[],coverage=[],sett
  const valid=samples.slice(start);if(!valid.length||now-valid[0].t<300000)return {ready:false,reasons:[]};
  const baseline=valid.filter(o=>o.t>=now-360000&&o.t<now-60000),recent=valid.filter(o=>o.t>=now-60000);
  const reasons=[];const mean=a=>a.reduce((n,o)=>n+Number(o.viewers),0)/a.length;
- if(settings.viewerRecord!==false&&baseline.length&&recent.length){const base=mean(baseline),current=mean(recent),sustained=valid.filter(o=>o.t>=now-25000);const threshold=Math.max(base*(1+settings.viewerRatio),base+settings.viewerIncrease);
-  if(current>=threshold&&sustained.length>=3&&sustained.at(-1).t-sustained[0].t>=20000&&sustained.every(o=>o.viewers>=threshold))reasons.push({kind:'viewers',text:`人数 ${Math.round(base)} → ${Math.round(current)}`,baseline:base,value:current});
+ if(settings.viewerRecord!==false&&baseline.length&&recent.length){
+  const trend=viewerTrend(baseline,now-60000),current=mean(recent),expected=recent.reduce((sum,o)=>sum+trend.at(o.t),0)/recent.length;
+  const threshold=expected=>Math.max(expected*(1+settings.viewerRatio),expected+settings.viewerIncrease);
+  const sustained=valid.filter(o=>o.t>=now-25000);
+  if(current>=threshold(expected)&&sustained.length>=3&&sustained.at(-1).t-sustained[0].t>=20000&&sustained.every(o=>o.viewers>=threshold(trend.at(o.t))))reasons.push({kind:'viewers',text:`人数加速上涨 · 预计 ${Math.round(expected)} → 实际 ${Math.round(current)}`,baseline:expected,value:current,priorRate:trend.slope});
  }
  const covered=coverage.some(c=>new Date(c.started_at).getTime()<=now-330000&&new Date(c.ended_at||c.last_seen).getTime()>=now-10000&&!c.ended_at);
  if(settings.tipRecord!==false&&covered){

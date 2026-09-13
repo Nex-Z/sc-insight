@@ -57,3 +57,27 @@ test('trigger choices are independent and legacy settings keep all triggers enab
  assert.deepEqual(detectHighlight({...input,settings:{...defaults,viewerRecord:false,tipRecord:false}}).reasons,[]);
  assert.throws(()=>validateHighlightSettings({viewerRecord:'false'}));
 });
+
+const trajectory=(minutes,value,step=5)=>Array.from({length:minutes*60/step+1},(_,i)=>({observed_at:new Date(since+i*step*1000),online:true,room_status:'public',viewers:Math.round(value(i*step/60,i))}));
+test('continuous fast growth from opening never triggers in rolling windows, including noisy and irregular samples',()=>{
+ for(const step of [5,10])for(const noisy of [false,true]){
+  const rows=trajectory(20,(m,i)=>100+300*m+(noisy?[-12,8,0,15,-5][i%5]:0),step).filter((_,i)=>!noisy||i%9!==4);
+  for(let minute=5;minute<=20;minute+=.5){const result=detectHighlight({now:since+minute*60000,since,observations:rows});assert.deepEqual(result.reasons,[],JSON.stringify({minute,step,noisy}));}
+ }
+});
+test('slow growth followed by a sustained acceleration triggers, while a brief burst does not',()=>{
+ for(const step of [5,10]){
+  const rows=trajectory(6,m=>100+30*m+Math.max(0,m-5)*600,step);
+  const result=detectHighlight({now,since,observations:rows});assert.equal(result.reasons[0]?.kind,'viewers');assert.ok(Math.abs(result.reasons[0].priorRate-30)<1);
+  const brief=trajectory(6,m=>100+30*m+(m>5.8?500:0),step);assert.deepEqual(detectHighlight({now,since,observations:brief}).reasons,[]);
+ }
+});
+test('baseline outlier and a recovery from declining counts do not fabricate acceleration',()=>{
+ const outlier=trajectory(6,(m,i)=>100+300*m+(i===30?30000:0));assert.deepEqual(detectHighlight({now,since,observations:outlier}).reasons,[]);
+ const recovery=trajectory(6,m=>m<5?500-60*m:200+100*(m-5));assert.deepEqual(detectHighlight({now,since,observations:recovery}).reasons,[]);
+});
+test('a steady audience ramp still allows independent tip highlights',()=>{
+ const rows=trajectory(6,m=>100+300*m);
+ const result=detectHighlight({now,since,observations:rows,coverage:[{started_at:new Date(since),last_seen:new Date(now)}],tips:[{source:'live',amount:800,message_at:new Date(now-5000),received_at:new Date(now-4000)}]});
+ assert.deepEqual(result.reasons.map(r=>r.kind),['tips','singleTip']);
+});
