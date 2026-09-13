@@ -16,7 +16,7 @@ export function publicIdentity(data,model){
 export function normalizeGoal(goal,live){
  if(!live||goal?.isEnabled!==true||!(number(goal.goal)>0))return null;
  const spent=number(goal.spent);
- return {description:text(goal.description),target:goal.goal,spent,left:number(goal.left),percent:spent===null?null:Math.min(100,spent/goal.goal*100)};
+ return {...(goal.id!=null?{id:String(goal.id)}:{}),description:text(goal.description),target:goal.goal,spent,left:number(goal.left),percent:spent===null?null:Math.min(100,spent/goal.goal*100)};
 }
 export function normalizeMenu(menu){return {enabled:menu?.isEnabled===true,items:list(menu?.settings).slice(0,200).filter(x=>text(x.activity)&&number(x.price)!==null).map(x=>({activity:text(x.activity,500),price:x.price}))};}
 export function normalizeMembers(data){
@@ -42,6 +42,7 @@ export function createPublicInfo({fetcher=fetch,now=Date.now}={}){
  }
  async function cam(model){if(!/^\d+$/.test(String(model.source_id)))throw new Error('主播平台 ID 无效');const data=await request(`/v2/models/${model.source_id}/cam`);return {data,u:publicIdentity(data,model)};}
  return {
+  async goal(model){const {data,u}=await cam(model);return {goal:normalizeGoal(data.cam?.goal,u.status==='public'&&data.cam?.isCamAvailable===true)};},
   async snapshot(model){const {u,data}=await cam(model);return {url:snapshotUrl(u,data.cam)};},
   async room(model){const {data,u}=await cam(model);const live=u.status==='public'&&data.cam?.isCamAvailable===true;let audience=null,audienceError=null;if(live)try{audience=normalizeMembers(await request(`/models/${model.source_id}/members`));}catch{audienceError='官网在线名单暂不可用';}
    return {live,goal:normalizeGoal(data.cam?.goal,live),audience,audienceError,updatedAt:new Date(now()).toISOString()};},

@@ -1,6 +1,6 @@
 {
   "name": "sc-insight",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,8 @@
     "db:init": "node server/init.js",
     "test": "node --test server/*.test.js",
     "test:e2e": "node server/visual-check.js",
+    "test:highlights": "node server/highlight-integration.js",
+    "test:highlights:ui": "node server/highlight-ui-check.js",
     "test:capture": "node --use-env-proxy server/capture-integration.js",
     "test:capture:ui": "node --use-env-proxy server/capture-ui-check.js",
     "test:capture:groups:ui": "node server/capture-groups-ui-check.js",

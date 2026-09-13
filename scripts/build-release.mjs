@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import {build} from 'esbuild';
 const out='artifacts/release';await fs.mkdir(out+'/server',{recursive:true});
 await build({entryPoints:['server/index.js','server/init.js'],bundle:true,platform:'node',target:'node24',format:'esm',packages:'external',minify:true,outdir:out+'/server',outExtension:{'.js':'.mjs'}});
+await build({entryPoints:['server/highlight-process.js'],bundle:true,platform:'node',target:'node24',format:'esm',minify:true,outfile:out+'/server/highlight-process.js'});
 await fs.cp('dist',out+'/dist',{recursive:true});
 const pkg=JSON.parse(await fs.readFile('package.json','utf8'));
 const names=['dotenv','express','pg','playwright','ws','https-proxy-agent','undici'];
