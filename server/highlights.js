@@ -1,3 +1,4 @@
+import {getHighlightLimit,loadHighlightCapacity,idleHighlightsToRelease} from './highlight-capacity.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -14,7 +15,7 @@ import {recordingInterruption} from '../src/room-state.js';
 import {inspectRoomState} from './room-state.js';
 
 const jobs=new Map(),states=new Map(),retry=new Map();let timer,lock,inflight,stopped=true;
-const limit=2;
+export function highlightCapacity(){return {concurrency:getHighlightLimit(),active:jobs.size,waiting:[...states.values()].filter(s=>s.waiting).length};}
 export function highlightState(id){return states.get(Number(id))||{status:'等待公开直播'};}
 export async function archiveHighlight(job,error=null){
  const h=job.highlight;if(!h)return;
@@ -76,6 +77,7 @@ async function sample(job,config){
  // A ten-second segment must close before exporting its tail.
  if(job.highlight&&!Object.keys(job.highlight.pendingGoals||{}).length&&now>=job.highlight.end+15000){await archiveHighlight(job);job.cooldown=now+30000;}
  if(job.retainBuffer)throw new Error('高光归档失败，已保留缓存片段供恢复');
+ if(jobs.size>getHighlightLimit()&&!job.highlight)return;
  if(decision.reasons.length&&(!job.highlight||now<job.highlight.end+15000))await captureHighlight(job,decision.reasons,now);
  states.set(job.modelId,{status:job.highlight?Object.keys(job.highlight.pendingGoals||{}).length?'目标高光录制中 · 等待目标完成':job.highlight.goalTail>now?'目标已完成 · 保留后续 15 分钟':'高光录制中':decision.ready?'监测中 · 已缓存':'人数 / TK 预热中 · 目标监控已就绪',activeId:job.highlight?.id||null});
  await pruneBuffer(job.buffer,job.highlight?job.highlight.start:now-140000);
@@ -86,6 +88,9 @@ async function tick(){
  for(const [id,job] of jobs){const m=wanted.get(id);
   if(!m||!m.monitored||!m.online||m.room_status!=='public'||m.room_details?.recordable===false||Date.now()-new Date(m.last_seen_at)>20000){const ending=m?{...recordingInterruption(m),status:m.room_status}:null;await stopJob(id,ending?.reason||'高光录制已关闭，已保留现有片段',ending);states.set(id,{status:ending?.reason||'已关闭'});}
  }
+ // Let active clips finish; idle buffers yield immediately when the limit is lowered.
+ for(const id of idleHighlightsToRelease(jobs,getHighlightLimit())){await stopJob(id,'高光容量已调整');states.set(id,{status:'等待高光录制名额',waiting:true});}
+ for(const id of states.keys())if(!wanted.has(id))states.delete(id);
  for(const model of rows){
   if(stopped)break;
   try{
@@ -93,7 +98,7 @@ async function tick(){
    if(!jobs.has(model.id)){
     if((retry.get(model.id)||0)>Date.now())continue;
     if(!workerState().ready){states.set(model.id,{status:'录制服务未就绪'});continue;}
-    if(jobs.size>=limit){states.set(model.id,{status:'等待高光录制名额（最多 2 路）'});continue;}
+    if(jobs.size>=getHighlightLimit()){states.set(model.id,{status:`等待高光录制名额（最多 ${getHighlightLimit()} 路）`,waiting:true});continue;}
     const storage=await getStorage();if(!storage.space||storage.space.available<1024*1024*1024)throw new Error('需要至少 1 GB 可用磁盘空间');
     const input=await resolveModelInput(model);let buffer;
     try{if(stopped){input.close();break;}buffer=await startBuffer(path.join(storage.directory,'.highlight-cache',randomUUID()),input);}catch(e){input.close();throw e;}
@@ -113,6 +118,7 @@ export function syncHighlights(){
 }
 export async function startHighlights(){
  await pool.query(highlightSchema);
+ await loadHighlightCapacity();
  lock=await pool.connect();const {rows:[r]}=await lock.query('SELECT pg_try_advisory_lock(73190513) AS locked');if(!r.locked){lock.release();lock=null;return;}
  const interrupted=await pool.query("UPDATE highlights SET status='已中断',error='服务重启，保留已有文件和临时片段',finished_at=now() WHERE status IN ('录制中','归档中') RETURNING *");
  for(const h of interrupted.rows){try{const file=safeFile(h),info=await probe(file),stat=await fs.stat(file);await pool.query('UPDATE highlights SET duration_seconds=$2,bytes=$3 WHERE id=$1',[h.id,Number(info.format.duration)||0,stat.size]);}catch{}}
