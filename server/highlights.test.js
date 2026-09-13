@@ -48,3 +48,12 @@ test('pinned goal media survives a rolling CSV longer than twenty minutes; prune
   await pruneBuffer(buffer,120000);const count=buffer.segments.length;await readBuffer(buffer);assert.equal(buffer.segments.length,count);assert.ok(buffer.segments.every(s=>s.end>=120));
  }finally{await cleanBuffer(buffer);}
 });
+
+test('trigger choices are independent and legacy settings keep all triggers enabled',()=>{
+ const defaults=validateHighlightSettings({viewerIncrease:75});assert.equal(defaults.viewerRecord,true);assert.equal(defaults.tipRecord,true);assert.equal(defaults.viewerIncrease,75);
+ const input={now,since,observations,coverage:[{started_at:new Date(since),last_seen:new Date(now)}],tips:[{source:'live',amount:800,message_at:new Date(now-5000),received_at:new Date(now-4000)}]};
+ assert.deepEqual(detectHighlight({...input,settings:{...defaults,viewerRecord:false}}).reasons.map(r=>r.kind),['tips','singleTip']);
+ assert.deepEqual(detectHighlight({...input,settings:{...defaults,tipRecord:false}}).reasons.map(r=>r.kind),['viewers']);
+ assert.deepEqual(detectHighlight({...input,settings:{...defaults,viewerRecord:false,tipRecord:false}}).reasons,[]);
+ assert.throws(()=>validateHighlightSettings({viewerRecord:'false'}));
+});

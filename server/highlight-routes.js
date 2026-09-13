@@ -4,7 +4,6 @@ import {pool} from './db.js';
 import {safeFile} from './media.js';
 import {highlightState,syncHighlights} from './highlights.js';
 import {validateHighlightSettings} from './highlight-detection.js';
-import {getPolling} from './polling.js';
 import {syncGoalMonitor} from './goal-monitor.js';
 export const highlightRoutes=express.Router();
 highlightRoutes.param('modelId',(req,res,next,value)=>{if(!/^[1-9]\d{0,9}$/.test(value))return res.status(400).json({error:'主播 ID 无效'});next();});
@@ -17,8 +16,8 @@ highlightRoutes.get('/models/:modelId/highlights',async(req,res)=>{
 });
 highlightRoutes.put('/models/:modelId/highlights',async(req,res)=>{
  if(typeof req.body.enabled!=='boolean')return res.status(400).json({error:'enabled 必须是布尔值'});
- if(req.body.enabled&&getPolling().trackedSeconds>10)return res.status(400).json({error:'请先在系统设置中将关注 / 监控采集间隔调至 5–10 秒，再启用高光录制'});
  let config;try{config=validateHighlightSettings(req.body.config);}catch(e){return res.status(400).json({error:e.message});}
+ if(req.body.enabled&&!config.viewerRecord&&!config.tipRecord&&!config.goalRecord)return res.status(400).json({error:'请至少选择一种要录制的高光'});
  const db=await pool.connect();
  try{
   await db.query('BEGIN');const r=await db.query('SELECT id FROM models WHERE id=$1 FOR UPDATE',[req.params.modelId]);if(!r.rowCount){await db.query('ROLLBACK');return res.status(404).json({error:'主播不存在'});}
