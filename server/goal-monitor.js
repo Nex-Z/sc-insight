@@ -4,21 +4,21 @@ import {observeGoal} from './goal-detection.js';
 import {validateHighlightSettings} from './highlight-detection.js';
 const info=createPublicInfo();let timer,inflight,stopped=true,lock;
 export async function saveGoalObservation(db,model,goal,now=Date.now()){
- const config=validateHighlightSettings(model.config);
+ const config=validateHighlightSettings(model.config||{});
  await db.query('INSERT INTO goal_monitor_state(model_id) VALUES($1) ON CONFLICT DO NOTHING',[model.id]);
  const previous=(await db.query('SELECT state FROM goal_monitor_state WHERE model_id=$1 FOR UPDATE',[model.id])).rows[0].state;
  const result=observeGoal(previous,goal,now,config.goalNearPercent);
  await db.query('UPDATE goal_monitor_state SET state=$2,error=NULL,updated_at=$3 WHERE model_id=$1',[model.id,result.state,new Date(now)]);
  for(const signal of result.signals){
   const inserted=await db.query('INSERT INTO goal_signals(model_id,cycle,kind,payload,observed_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING id',[model.id,signal.cycle,signal.kind,signal,new Date(now)]);
-  if(inserted.rowCount&&config.goalNotify)await db.query('INSERT INTO events(model_id,title,detail) VALUES($1,$2,$3)',[model.id,signal.kind==='goalNear'?'目标即将完成':'目标已完成',`${model.name} · ${signal.text}`]);
+  if(inserted.rowCount&&(config.goalNotify||signal.kind==='goalComplete'&&(model.favorite||model.monitored)))await db.query('INSERT INTO events(model_id,title,detail,kind,payload,created_at) VALUES($1,$2,$3,$4,$5,$6)',[model.id,model.name+(signal.kind==='goalNear'?' 目标即将完成':' 目标已完成'),signal.text,signal.kind,{goalSignalId:inserted.rows[0].id},new Date(now)]);
  }
  return result;
 }
 export function syncGoalMonitor(){
  if(stopped)return Promise.resolve();if(inflight)return inflight;
  inflight=(async()=>{
-  const {rows}=await pool.query("SELECT m.*,h.config FROM highlight_settings h JOIN models m ON m.id=h.model_id WHERE m.monitored AND ((h.enabled AND coalesce((h.config->>'goalRecord')::boolean,true)) OR coalesce((h.config->>'goalNotify')::boolean,false)) ORDER BY m.id");
+  const {rows}=await pool.query("SELECT m.*,h.config FROM models m LEFT JOIN highlight_settings h ON h.model_id=m.id WHERE m.favorite OR m.monitored ORDER BY m.id");
   let cursor=0;await Promise.all(Array.from({length:Math.min(4,rows.length)},async()=>{while(cursor<rows.length&&!stopped){const model=rows[cursor++];
    try{
     const room=await info.goal(model);const db=await pool.connect();try{await db.query('BEGIN');await saveGoalObservation(db,model,room.goal);await db.query('COMMIT');}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}

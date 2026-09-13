@@ -48,6 +48,9 @@ export function createPublicInfo({fetcher=fetch,now=Date.now}={}){
    return {live,goal:normalizeGoal(data.cam?.goal,live),audience,audienceError,updatedAt:new Date(now()).toISOString()};},
   async profile(model){const {u}=await cam(model);const id=model.source_id;const paths=[`/v2/users/${id}/profile`,`/v2/models/${id}/tip-menu/settings`,`/show/v2/models/${id}/reviews?offset=0&limit=20`,`/v2/users/${id}/albums?limit=40`,`/users/${id}/intros`];
    const results=await Promise.allSettled(paths.map(p=>request(p,300000)));const values=results.map(r=>r.status==='fulfilled'?r.value:null);
-   const data=normalizeProfile(u,...values);data.background=normalizeBackground(values[4]);data.unavailable=['profile','menu','reviews','albums','background'].filter((_,i)=>results[i].status==='rejected');return {...data,updatedAt:new Date(now()).toISOString()};}
+   const data=normalizeProfile(u,...values);data.background=normalizeBackground(values[4]);data.unavailable=['profile','menu','reviews','albums','background'].filter((_,i)=>results[i].status==='rejected');
+   // A successful HTTP response with an unexpected shape is not evidence of deletion.
+   for(const [key,valid] of [['profile',values[0]?.item&&typeof values[0].item==='object'],['menu',typeof values[1]?.isEnabled==='boolean'&&(values[1].isEnabled===false||Array.isArray(values[1].settings))],['albums',Array.isArray(values[3]?.albums)]])if(!valid&&!data.unavailable.includes(key))data.unavailable.push(key);
+   return {...data,updatedAt:new Date(now()).toISOString()};}
  };
 }

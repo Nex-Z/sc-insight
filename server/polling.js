@@ -33,7 +33,7 @@ export async function collectTracked(){
     const growth=found.viewers!=null&&old.last_seen_at&&old.viewers>0?Math.round((found.viewers-old.viewers)/old.viewers*100):null;
     await db.query('UPDATE models SET viewers=coalesce($2,viewers),online=$3,room_status=$4,growth=$5,last_seen_at=now(),room_details=$6 WHERE id=$1',[model.id,found.viewers,found.online,found.room_status,growth,found.room_details]);
     if(found.viewers!=null&&found.online!==null)await db.query("INSERT INTO model_snapshots(model_id,viewers,online,scope) VALUES($1,$2,$3,'tracked')",[model.id,found.viewers,found.online]);
-    if(old.monitored&&old.last_seen_at){const rules=(await db.query('SELECT * FROM monitor_rules WHERE enabled=true')).rows;for(const rule of rules){const threshold=Number(rule.condition.match(/≥\s*(\d+)/)?.[1]);if((rule.condition==='主播上线时'&&old.online===false&&found.online===true)||(threshold>0&&old.viewers<threshold&&found.viewers>=threshold))await db.query('INSERT INTO events(model_id,title,detail) VALUES($1,$2,$3)',[model.id,rule.name,`${model.name} · 当前 ${found.viewers} 人观看`]);}}
+    if(old.monitored&&old.last_seen_at){const rules=(await db.query('SELECT * FROM monitor_rules WHERE enabled=true')).rows;for(const rule of rules){const threshold=Number(rule.condition.match(/≥\s*(\d+)/)?.[1]);if((threshold>0&&old.viewers<threshold&&found.viewers>=threshold))await db.query('INSERT INTO events(model_id,title,detail) VALUES($1,$2,$3)',[model.id,rule.name,`${model.name} · 当前 ${found.viewers} 人观看`]);}}
     await recordBroadcast(db,model.id,found,interval);
     await db.query('COMMIT');count++;
    }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}

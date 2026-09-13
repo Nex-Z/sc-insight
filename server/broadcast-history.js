@@ -33,7 +33,8 @@ export async function recordBroadcast(db,modelId,sample,intervalSeconds,time=new
  const previous=(await db.query('SELECT * FROM broadcast_observations WHERE model_id=$1 AND error IS NULL ORDER BY observed_at DESC,id DESC LIMIT 1',[modelId])).rows[0];
  let active=(await db.query('SELECT * FROM broadcast_sessions WHERE model_id=$1 AND ended_at IS NULL',[modelId])).rows[0];
  const decision=classifyObservation(previous,{time,online:sample.online},intervalSeconds);
- if(previous){const failed=await db.query('SELECT 1 FROM broadcast_observations WHERE model_id=$1 AND error IS NOT NULL AND observed_at>$2 LIMIT 1',[modelId,previous.observed_at]);if(failed.rowCount){decision.seconds=0;decision.startKnown=false;}}
+ let failedSince=false;
+ if(previous){const failed=await db.query('SELECT 1 FROM broadcast_observations WHERE model_id=$1 AND error IS NOT NULL AND observed_at>$2 LIMIT 1',[modelId,previous.observed_at]);if(failed.rowCount){failedSince=true;decision.seconds=0;decision.startKnown=false;}}
  if(active&&decision.gap){await db.query("UPDATE broadcast_sessions SET ended_at=last_seen,end_reason='observation_gap',incomplete=true WHERE id=$1",[active.id]);active=null;}
  if(sample.online&&!active){active=(await db.query('INSERT INTO broadcast_sessions(model_id,first_seen,last_seen,start_known,incomplete) VALUES($1,$2,$2,$3,$4) RETURNING *',[modelId,time,decision.startKnown,!decision.startKnown])).rows[0];}
  if(active&&sample.online){
@@ -42,5 +43,8 @@ export async function recordBroadcast(db,modelId,sample,intervalSeconds,time=new
   if(seconds>0)await db.query('INSERT INTO broadcast_intervals(model_id,session_id,started_at,ended_at,viewer_average,room_status) VALUES($1,$2,$3,$4,$5,$6)',[modelId,active.id,previous.observed_at,time,previous.viewers!=null&&sample.viewers!=null?(previous.viewers+sample.viewers)/2:null,previous.room_status===sample.room_status?sample.room_status:null]);
  }else if(active&&sample.online===false){await db.query("UPDATE broadcast_sessions SET ended_at=$2,end_known=true,end_reason='offline_observed' WHERE id=$1",[active.id,time]);}
  else if(active){await db.query('UPDATE broadcast_sessions SET incomplete=true WHERE id=$1',[active.id]);}
+ if(previous&&!decision.gap&&!failedSince&&typeof previous.online==='boolean'&&typeof sample.online==='boolean'&&previous.online!==sample.online){
+  await db.query(`INSERT INTO events(model_id,title,detail,kind,payload,created_at) SELECT id,name||$2,$3,$4,$5,$6 FROM models WHERE id=$1 AND (favorite OR monitored)`,[modelId,sample.online?' 上线了':' 下线了',sample.online?'已观察到上线，点击查看本场数据':'已观察到下线，点击回顾本场数据',sample.online?'online':'offline',{sessionId:active?.id||null},time]);
+ }
  await db.query('INSERT INTO broadcast_observations(model_id,session_id,observed_at,online,room_status,viewers,interval_seconds,room_details) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[modelId,active?.id||null,time,sample.online,sample.room_status,sample.viewers,intervalSeconds,sample.room_details||null]);
 }

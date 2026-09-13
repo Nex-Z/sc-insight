@@ -1,4 +1,5 @@
 import {highlightSchema} from './highlight-schema.js';
+import {insightSchema} from './insight-schema.js';
 import {chatSchema} from './chat-monitor.js';
 import {broadcastSchema} from './broadcast-history.js';
 import 'dotenv/config';
@@ -38,6 +39,7 @@ try {
  await db.query(broadcastSchema);
  await db.query(chatSchema);
  await db.query(highlightSchema);
+ await db.query(insightSchema);
  await db.query('COMMIT');
  console.log(`Database ${database} ready; schema installed idempotently.`);
 } catch(e) { await db.query('ROLLBACK'); throw e; } finally { await db.end(); }

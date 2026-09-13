@@ -1,0 +1,7 @@
+import React from 'react';
+import {useInsight,number,hours,when} from './insight-api.js';
+export default function RecentComparison({id}){
+ const {data,error}=useInsight(`/models/${id}/comparison`,60000);
+ const rows=data?[['在线覆盖',hours(data.current.seconds),hours(data.previous.seconds)],['观察活跃天数',number(data.current.days),number(data.previous.days)],['常见开播时段',...[data.current,data.previous].map(p=>p.start_count>=3?`${p.start_hour}:00–${p.start_hour+1}:00（${p.start_count} 次）`:'样本不足')],['时间加权观看均值',number(data.current.average),number(data.previous.average)],['有效聊天覆盖',hours(data.current.chat_seconds),hours(data.previous.chat_seconds)],['每小时弹幕',...data.messageRates.map(number)],['每小时公开 TK',...data.tokenRates.map(number)]]:[];
+ return <section className="md-section"><div className="md-section-title"><h2>与上一周相比</h2><span>两个完整的 7 天 · 不含今天</span></div>{error&&<p role="alert">{error}</p>}{data&&<><p>{when(data.current.lo)} — {when(data.current.hi)} · 对比此前 7 天</p><div className="md-table"><table><thead><tr><th>指标</th><th>最近 7 天</th><th>此前 7 天</th></tr></thead><tbody>{rows.map(([label,a,b])=><tr key={label}><td>{label}</td><td>{a}</td><td>{b}</td></tr>)}</tbody></table></div><p>{data.viewerChange==null?'有效观看采样不足，暂不判断涨跌。':`已观察到的平均观看人数${data.viewerChange>=0?'上升':'下降'} ${number(Math.abs(data.viewerChange))}%。`}</p><small className="muted">观看比较要求两期各至少覆盖 3 天、1 小时有效人数数据；常见时段要求该小时至少观察到 3 次开播；聊天按实际覆盖时长折算。{!data.chatComparable?'聊天覆盖不足，暂不判断互动趋势。':''}覆盖时长不是完整直播时长，公开 TK 不是总收入。</small></>}</section>;
+}

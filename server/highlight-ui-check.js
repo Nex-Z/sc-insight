@@ -22,7 +22,7 @@ try{
  });
  await page.goto(`http://127.0.0.1:${server.address().port}/#detail/1`);await page.getByRole('tab',{name:'高光时刻',exact:true}).click();await page.getByText('尚无高光片段。',{exact:false}).waitFor();
  await page.getByRole('checkbox',{name:'高光录制'}).click();await page.getByRole('button',{name:'播放高光'}).waitFor();assert.equal(enabled,true);
- await page.getByRole('checkbox',{name:'目标进度提醒',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.goal-controls input')?.checked);assert.equal(config.goalNotify,true);
+ await page.getByRole('checkbox',{name:'目标即将完成提醒',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.goal-controls input')?.checked);assert.equal(config.goalNotify,true);
  assert.equal(await page.getByLabel('人数增幅（%）').count(),0);
  await page.getByRole('checkbox',{name:'人数变多',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('input[aria-label="人数变多"]').checked);assert.equal(config.viewerRecord,false);assert.equal(config.tipRecord,true);
  await page.getByRole('button',{name:'高级设置'}).click();assert.equal(await page.getByLabel('人数增幅（%）').inputValue(),'30');await page.getByLabel('人数增幅（%）').fill('45');await page.getByLabel('人数至少增加').fill('75');await page.getByLabel('目标剩余比例（%）').fill('2');await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByRole('button',{name:'高级设置'}).waitFor();assert.equal(config.viewerRatio,.45);assert.equal(config.viewerIncrease,75);assert.equal(config.goalNearPercent,2);
