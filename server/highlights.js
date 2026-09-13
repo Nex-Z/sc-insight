@@ -10,6 +10,8 @@ import {highlightSchema} from './highlight-schema.js';
 import {detectHighlight,validateHighlightSettings} from './highlight-detection.js';
 import {startBuffer,readBuffer,pruneBuffer,stopBuffer,exportBuffer,cleanBuffer} from './highlight-buffer.js';
 import {mergeHighlightWindow} from './goal-detection.js';
+import {recordingInterruption} from '../src/room-state.js';
+import {inspectRoomState} from './room-state.js';
 
 const jobs=new Map(),states=new Map(),retry=new Map();let timer,lock,inflight,stopped=true;
 const limit=2;
@@ -27,8 +29,9 @@ export async function archiveHighlight(job,error=null){
  }catch(e){await pool.query("UPDATE highlights SET status='失败',finished_at=now(),error=$2 WHERE id=$1",[h.id,redact(e.message)]);}
  job.highlight=null;
 }
-async function stopJob(id,reason){
+async function stopJob(id,reason,ending){
  const job=jobs.get(id);if(!job)return;
+ if(job.highlight&&ending)await pool.query('UPDATE highlights SET end_reason=$2,end_room_status=$3 WHERE id=$1',[job.highlight.id,ending.code,ending.status||null]);
  await stopBuffer(job.buffer);job.input.close();
  await archiveHighlight(job,reason);
  if(!job.retainBuffer)await cleanBuffer(job.buffer);jobs.delete(id);
@@ -81,12 +84,12 @@ async function tick(){
  const {rows}=await pool.query('SELECT m.*,h.config FROM highlight_settings h JOIN models m ON m.id=h.model_id WHERE h.enabled ORDER BY h.updated_at');
  const wanted=new Map(rows.map(m=>[m.id,m]));
  for(const [id,job] of jobs){const m=wanted.get(id);
-  if(!m||!m.monitored||!m.online||m.room_status!=='public'||Date.now()-new Date(m.last_seen_at)>20000){await stopJob(id,m?'公开直播或连续采样不可用，已保留现有片段':'高光录制已关闭，已保留现有片段');states.set(id,{status:m?'等待公开直播 / 新鲜采样':'已关闭'});}
+  if(!m||!m.monitored||!m.online||m.room_status!=='public'||m.room_details?.recordable===false||Date.now()-new Date(m.last_seen_at)>20000){const ending=m?{...recordingInterruption(m),status:m.room_status}:null;await stopJob(id,ending?.reason||'高光录制已关闭，已保留现有片段',ending);states.set(id,{status:ending?.reason||'已关闭'});}
  }
  for(const model of rows){
   if(stopped)break;
   try{
-   if(!model.monitored||!model.online||model.room_status!=='public'||Date.now()-new Date(model.last_seen_at)>20000){states.set(model.id,{status:'等待公开直播 / 新鲜采样'});continue;}
+   if(!model.monitored||!model.online||model.room_status!=='public'||model.room_details?.recordable===false||Date.now()-new Date(model.last_seen_at)>20000){states.set(model.id,{status:recordingInterruption(model).reason});continue;}
    if(!jobs.has(model.id)){
     if((retry.get(model.id)||0)>Date.now())continue;
     if(!workerState().ready){states.set(model.id,{status:'录制服务未就绪'});continue;}
@@ -97,7 +100,7 @@ async function tick(){
     jobs.set(model.id,{modelId:model.id,input,buffer,storage:storage.directory,since:Date.now()});
    }
    await sample(jobs.get(model.id),model.config);
-  }catch(e){const error=redact(e.message);states.set(model.id,{status:'重试等待',error});retry.set(model.id,Date.now()+60000);await stopJob(model.id,error);}
+  }catch(e){let error=redact(e.message),ending;try{if(jobs.has(model.id)){const room=await inspectRoomState(model);if(!room.recordable){ending={...recordingInterruption({room_status:room.status,room_details:room}),status:room.status};error=ending.reason;}}}catch{}states.set(model.id,{status:'重试等待',error});retry.set(model.id,Date.now()+60000);await stopJob(model.id,error,ending);}
  }
 }
 export function syncHighlights(){

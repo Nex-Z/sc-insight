@@ -19,7 +19,7 @@ test('offline waits, online starts once, offline stops, next online starts again
 test('offline can be registered without resolving media; HTTP errors are not offline',async()=>{
  const state={viewCamBase:{model:{id:123,username:'Alice',status:'offline'}}};
  const fetcher=async()=>new Response('window.__PRELOADED_STATE__ = '+JSON.stringify(state));
- assert.deepEqual(await inspectPublicRoom('Alice',{fetcher}),{name:'Alice',modelId:'123',status:'offline',live:false});
+ const room=await inspectPublicRoom('Alice',{fetcher});assert.equal(room.name,'Alice');assert.equal(room.modelId,'123');assert.equal(room.status,'offline');assert.equal(room.live,false);assert.equal(room.online,false);
  await assert.rejects(inspectPublicRoom('Alice',{fetcher:async()=>new Response('',{status:503})}),/503/);
 });
 

@@ -4,7 +4,7 @@ export async function reconcileLiveTarget(model,{inspect,active,eligible,start,s
  if(String(room.modelId)!==String(model.source_id))throw new Error('主播 ID 不匹配');
  await observe(room);
  const tasks=await active();
- if(!room.live){for(const task of tasks)await stop(task.id);return 'waiting';}
+ if(!room.live){for(const task of tasks)await stop(task.id,room);return 'waiting';}
  if(!tasks.length&&await eligible()){await start();return 'started';}
  return 'watching';
 }

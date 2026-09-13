@@ -1,6 +1,7 @@
 import {sourceUrl} from './media.js';
 import {resolveLivePlaylist} from './live-manifest.js';
 import {advertisedFormat,rewriteMouflon,bestVariant} from './mouflon.js';
+import {classifyRoom} from '../src/room-state.js';
 
 export function readInitialState(html){
  const marker='window.__PRELOADED_STATE__';const at=html.indexOf(marker);
@@ -40,10 +41,10 @@ export async function inspectPublicRoom(name,{fetcher=fetch}={}){
  if(!response.ok)throw new Error(`公开直播间请求失败（HTTP ${response.status}）`);
  const state=readInitialState(await readBounded(response,4*1024*1024)),model=state.viewCamBase?.model;
  if(model?.username?.toLowerCase()!==name.toLowerCase()||!/^\d+$/.test(String(model?.id)))throw new Error('直播间身份无法确认');
- if(model.status==='off')model.status='offline';
- if(!['public','offline','idle','private','groupShow','p2p','away'].includes(model.status))throw new Error('直播状态未知，保留现有任务');
+
+ if(!['public','off','offline','idle','private','groupShow','p2p','away'].includes(model.status))throw new Error('直播状态未知，保留现有任务');
  if(model.status==='public'&&typeof state.viewCam?.isCamAvailable!=='boolean')throw new Error('直播可用状态未知，保留现有任务');
- return {name:model.username,modelId:String(model.id),status:model.status,live:model.status==='public'&&!model.isBlocked&&!model.isDeleted&&state.viewCam?.isCamAvailable===true};
+ const room=classifyRoom(model,state.viewCam,'room-page');return {...room,name:model.username,modelId:String(model.id),live:room.recordable};
 }
 export async function resolvePublicSource(name,{fetcher=fetch}={}){
  if(typeof name!=='string'||! /^[\w-]{1,80}$/.test(name))throw new Error('主播名称无效');

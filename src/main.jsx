@@ -1,3 +1,4 @@
+import {roomLabel} from './room-state.js';
 import ProxySettings from './ProxySettings.jsx';
 import {useNotifications,BrowserNotificationSetting} from './BrowserNotifications.jsx';
 import ModelDashboard from './ModelDashboard.jsx';
@@ -21,7 +22,7 @@ function Icon({icon:Icon,size=20,...props}){return <Icon size={size} strokeWidth
 function Panel({title,icon=ChartNoAxesColumnIncreasing,action,children,className=''}){return <section className={'panel '+className}><div className="panel-head"><h3><Icon icon={icon}/>{title}</h3>{action}</div>{children}</section>;}
 function Empty({icon:Glyph=Activity,title='暂无记录',text='数据将在采集后显示',children}){return <div className="empty"><Glyph size={32}/><strong>{title}</strong><span>{text}</span>{children}</div>;}
 function Avatar({model,large=false}){return <div className={'avatar '+(large?'large':'')} style={{'--avatar':model?.color||'#896c78'}}>{model?.name?.slice(0,2).toUpperCase()||'SC'}</div>;}
-function Status({model}){return <span className={'status '+(!model.fresh?'muted':model.online?'green':'muted')}><i/>{!model.fresh?'待更新':model.online?'在线':'离线'}</span>;}
+function Status({model}){return <span className={'status '+(!model.fresh?'muted':model.online?'green':'muted')}><i/>{!model.fresh?'待更新':roomLabel(model.room_status)}</span>;}
 function Toggle({on,onChange,label}){return <button className={'toggle '+(on?'on':'')} onClick={onChange} aria-label={label} role="switch" aria-checked={on}><span/></button>;}
 function Stat({icon=Users,label,value,color='red',sub,delta}){return <div className="stat"><div className={'stat-icon '+color}><Icon icon={icon} size={29}/></div><div><span>{label}</span><strong>{value}</strong>{delta!=null&&<b className={delta<0?'red-text':'green'}>{delta<0?'▼':'▲'} {Math.abs(delta)}%</b>}<small>{sub}</small></div></div>;}
 function Chart({data=[],detail=false}){

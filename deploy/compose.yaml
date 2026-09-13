@@ -1,7 +1,7 @@
 name: sc-insight
 services:
   app:
-    image: sc-insight:0.1.5
+    image: sc-insight:0.1.6
     build: ./release
     extra_hosts:
       - "host.docker.internal:host-gateway"

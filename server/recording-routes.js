@@ -28,7 +28,7 @@ recordingRoutes.post('/recordings/by-target',async(req,res)=>{
    if(!auto&&source.status!=='resolved')throw new Error(source.reason);
    model=(await pool.query(`INSERT INTO models(name,source_id,country,language,color,room_status,online)
     VALUES($1,$2,'未知','未知','#8a6b77',$3,$4)
-    ON CONFLICT(source_id) DO UPDATE SET name=excluded.name RETURNING *`,[source.name,source.modelId,auto?source.status:'public',auto?source.live:true])).rows[0];
+    ON CONFLICT(source_id) DO UPDATE SET name=excluded.name RETURNING *`,[source.name,source.modelId,auto?source.status:'public',auto?source.online:true])).rows[0];
   }
   if(auto){
    await pool.query('INSERT INTO recording_sources(model_id,url,auto_record,max_seconds,until_offline) VALUES($1,NULL,true,$2,$3) ON CONFLICT(model_id) DO UPDATE SET url=NULL,auto_record=true,max_seconds=excluded.max_seconds,until_offline=excluded.until_offline,updated_at=now()',[model.id,seconds,continuous]);

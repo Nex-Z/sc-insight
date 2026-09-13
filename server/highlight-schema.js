@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS highlights (
  duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0, bytes BIGINT NOT NULL DEFAULT 0, error TEXT);
 CREATE INDEX IF NOT EXISTS highlights_model_time ON highlights(model_id,id DESC);
 ALTER TABLE highlights ADD COLUMN IF NOT EXISTS cache_directory TEXT;
+ALTER TABLE highlights ADD COLUMN IF NOT EXISTS end_reason TEXT;
+ALTER TABLE highlights ADD COLUMN IF NOT EXISTS end_room_status TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_highlight_per_model ON highlights(model_id) WHERE status IN ('录制中','归档中');
 CREATE TABLE IF NOT EXISTS goal_monitor_state (
  model_id INTEGER PRIMARY KEY REFERENCES models(id) ON DELETE CASCADE,

@@ -1,3 +1,4 @@
+import {recordingInterruption} from '../src/room-state.js';
 import fs from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
@@ -135,7 +136,7 @@ async function checkAutomaticTargets(){
      active:async()=>(await pool.query('SELECT id FROM recordings WHERE model_id=$1 AND status=ANY($2::text[])',[model.id,ACTIVE])).rows,
      eligible:()=>eligible(model.id),
      start:async()=>{if(!stopping&&(await pool.query('SELECT 1 FROM recording_sources WHERE model_id=$1 AND auto_record=true',[model.id])).rowCount)await createRecording(model.id);},
-     stop:id=>stopRecording(id,{disableAuto:false,reason:'公开直播不可用，自动结束当前录制'})
+     stop:(id,room)=>stopRecording(id,{disableAuto:false,reason:recordingInterruption({room_status:room.status,room_details:room}).reason})
     });
    }catch(e){console.error('自动录制状态检查:',redact(e.message));}
   }

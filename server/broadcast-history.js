@@ -16,6 +16,12 @@ CREATE TABLE IF NOT EXISTS broadcast_intervals (
  id BIGSERIAL PRIMARY KEY,model_id INTEGER NOT NULL REFERENCES models(id),session_id BIGINT NOT NULL REFERENCES broadcast_sessions(id),
  started_at TIMESTAMPTZ NOT NULL,ended_at TIMESTAMPTZ NOT NULL,viewer_average DOUBLE PRECISION NOT NULL);
 CREATE INDEX IF NOT EXISTS broadcast_interval_model_time ON broadcast_intervals(model_id,started_at);
+ALTER TABLE models ADD COLUMN IF NOT EXISTS room_details JSONB;
+ALTER TABLE broadcast_observations ADD COLUMN IF NOT EXISTS room_details JSONB;
+ALTER TABLE broadcast_observations ALTER COLUMN viewers DROP NOT NULL;
+ALTER TABLE broadcast_intervals ALTER COLUMN viewer_average DROP NOT NULL;
+ALTER TABLE broadcast_sessions ADD COLUMN IF NOT EXISTS viewer_samples INTEGER;
+UPDATE broadcast_sessions SET viewer_samples=samples WHERE viewer_samples IS NULL;
 `;
 export function classifyObservation(previous,current,intervalSeconds){
  const seconds=previous?(new Date(current.time)-new Date(previous.observed_at))/1000:0;
@@ -32,8 +38,9 @@ export async function recordBroadcast(db,modelId,sample,intervalSeconds,time=new
  if(sample.online&&!active){active=(await db.query('INSERT INTO broadcast_sessions(model_id,first_seen,last_seen,start_known,incomplete) VALUES($1,$2,$2,$3,$4) RETURNING *',[modelId,time,decision.startKnown,!decision.startKnown])).rows[0];}
  if(active&&sample.online){
   const seconds=previous?.session_id===active.id?decision.seconds:0;
-  await db.query('UPDATE broadcast_sessions SET last_seen=$2,observed_seconds=observed_seconds+$3,samples=samples+1,viewer_sum=viewer_sum+$4,peak_viewers=greatest(peak_viewers,$4) WHERE id=$1',[active.id,time,seconds,sample.viewers]);
-  if(seconds>0)await db.query('INSERT INTO broadcast_intervals(model_id,session_id,started_at,ended_at,viewer_average,room_status) VALUES($1,$2,$3,$4,$5,$6)',[modelId,active.id,previous.observed_at,time,(previous.viewers+sample.viewers)/2,previous.room_status===sample.room_status?sample.room_status:null]);
- }else if(active){await db.query("UPDATE broadcast_sessions SET ended_at=$2,end_known=true,end_reason='offline_observed' WHERE id=$1",[active.id,time]);}
- await db.query('INSERT INTO broadcast_observations(model_id,session_id,observed_at,online,room_status,viewers,interval_seconds) VALUES($1,$2,$3,$4,$5,$6,$7)',[modelId,active?.id||null,time,sample.online,sample.room_status,sample.viewers,intervalSeconds]);
+  await db.query('UPDATE broadcast_sessions SET last_seen=$2,observed_seconds=observed_seconds+$3,samples=samples+1,viewer_samples=coalesce(viewer_samples,0)+CASE WHEN $4::double precision IS NULL THEN 0 ELSE 1 END,viewer_sum=viewer_sum+coalesce($4,0),peak_viewers=greatest(peak_viewers,$4) WHERE id=$1',[active.id,time,seconds,sample.viewers]);
+  if(seconds>0)await db.query('INSERT INTO broadcast_intervals(model_id,session_id,started_at,ended_at,viewer_average,room_status) VALUES($1,$2,$3,$4,$5,$6)',[modelId,active.id,previous.observed_at,time,previous.viewers!=null&&sample.viewers!=null?(previous.viewers+sample.viewers)/2:null,previous.room_status===sample.room_status?sample.room_status:null]);
+ }else if(active&&sample.online===false){await db.query("UPDATE broadcast_sessions SET ended_at=$2,end_known=true,end_reason='offline_observed' WHERE id=$1",[active.id,time]);}
+ else if(active){await db.query('UPDATE broadcast_sessions SET incomplete=true WHERE id=$1',[active.id]);}
+ await db.query('INSERT INTO broadcast_observations(model_id,session_id,observed_at,online,room_status,viewers,interval_seconds,room_details) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[modelId,active?.id||null,time,sample.online,sample.room_status,sample.viewers,intervalSeconds,sample.room_details||null]);
 }

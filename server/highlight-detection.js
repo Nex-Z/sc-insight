@@ -12,7 +12,7 @@ export function validateHighlightSettings(value={}){
 export function detectHighlight({now,since,observations,tips=[],coverage=[],settings=highlightDefaults}){
  const samples=observations.map(o=>({...o,t:new Date(o.observed_at).getTime()})).filter(o=>o.t>=since&&o.t<=now).sort((a,b)=>a.t-b.t);
  const last=samples.at(-1);if(!last||now-last.t>20000)return {ready:false,reasons:[]};
- let start=0;for(let i=0;i<samples.length;i++)if(samples[i].error||!samples[i].online||samples[i].room_status!=='public'||(i&&samples[i].t-samples[i-1].t>20000))start=i+(samples[i].error||!samples[i].online||samples[i].room_status!=='public'?1:0);
+ let start=0;for(let i=0;i<samples.length;i++)if(samples[i].error||samples[i].viewers==null||!samples[i].online||samples[i].room_status!=='public'||(i&&samples[i].t-samples[i-1].t>20000))start=i+(samples[i].error||samples[i].viewers==null||!samples[i].online||samples[i].room_status!=='public'?1:0);
  const valid=samples.slice(start);if(!valid.length||now-valid[0].t<300000)return {ready:false,reasons:[]};
  const baseline=valid.filter(o=>o.t>=now-360000&&o.t<now-60000),recent=valid.filter(o=>o.t>=now-60000);
  const reasons=[];const mean=a=>a.reduce((n,o)=>n+Number(o.viewers),0)/a.length;
