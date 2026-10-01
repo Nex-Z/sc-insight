@@ -1,8 +1,10 @@
+import {deleteContentRoute} from './content-delete.js';
 import {saveHighlightCapacity} from './highlight-capacity.js';
 import express from 'express';
 import fs from 'node:fs/promises';
 import {pool} from './db.js';
 import {safeFile} from './media.js';
+import {highlightDownloadFilename} from './recording-name.js';
 import {highlightState,syncHighlights,highlightCapacity} from './highlights.js';
 import {validateHighlightSettings} from './highlight-detection.js';
 import {syncGoalMonitor} from './goal-monitor.js';
@@ -20,7 +22,7 @@ highlightRoutes.get('/models/:modelId/highlights',async(req,res)=>{
 highlightRoutes.put('/models/:modelId/highlights',async(req,res)=>{
  if(typeof req.body.enabled!=='boolean')return res.status(400).json({error:'enabled 必须是布尔值'});
  let config;try{config=validateHighlightSettings(req.body.config);}catch(e){return res.status(400).json({error:e.message});}
- if(req.body.enabled&&!config.viewerRecord&&!config.tipRecord&&!config.goalRecord)return res.status(400).json({error:'请至少选择一种要录制的高光'});
+ if(req.body.enabled&&!config.viewerRecord&&!config.tipRecord&&!config.goalRecord&&!config.plainTipRecord&&!config.menuTipRecord)return res.status(400).json({error:'请至少选择一种要录制的高光'});
  const db=await pool.connect();
  try{
   await db.query('BEGIN');const r=await db.query('SELECT id FROM models WHERE id=$1 FOR UPDATE',[req.params.modelId]);if(!r.rowCount){await db.query('ROLLBACK');return res.status(404).json({error:'主播不存在'});}
@@ -31,9 +33,11 @@ highlightRoutes.put('/models/:modelId/highlights',async(req,res)=>{
 });
 highlightRoutes.get('/highlights/:id/file',async(req,res)=>{
  if(!/^[1-9]\d{0,18}$/.test(req.params.id))return res.status(400).json({error:'高光 ID 无效'});
- const {rows:[h]}=await pool.query('SELECT * FROM highlights WHERE id=$1',[req.params.id]);if(!h)return res.status(404).json({error:'高光不存在'});
+ const {rows:[h]}=await pool.query('SELECT h.*,m.name AS model_name FROM highlights h LEFT JOIN models m ON m.id=h.model_id WHERE h.id=$1',[req.params.id]);if(!h)return res.status(404).json({error:'高光不存在'});
  if(!['已完成','已中断'].includes(h.status))return res.status(409).json({error:'高光尚未归档'});
  let file;try{file=safeFile(h);await fs.access(file);}catch{return res.status(404).json({error:'片段文件不可用，可能在录制中断前尚未生成'});}
  res.set('Cache-Control','private, no-store');const done=e=>{if(e&&!res.headersSent)res.status(404).json({error:'读取高光失败'});};
- if(req.query.download==='1')res.download(file,h.filename,done);else res.sendFile(file,{headers:{'Content-Type':'video/mp4'}},done);
+ if(req.query.download==='1')res.download(file,highlightDownloadFilename(h,h.model_name),done);else res.sendFile(file,{headers:{'Content-Type':'video/mp4'}},done);
 });
+
+highlightRoutes.delete('/highlights/:id',deleteContentRoute('highlight'));

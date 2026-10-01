@@ -15,8 +15,8 @@ export function observeGoal(previous,goal,now,nearPercent=1){
  return {state:{...state,at:now,available:true,spent:goal.spent,goal,remaining},signals};
 }
 
-export function mergeHighlightWindow(current,reasons,now,{recordedThrough=0,bufferStart=0}={}){
- const h=current?{...current,reasons:[...current.reasons],pendingGoals:{...current.pendingGoals}}:{start:Math.max(now-120000,recordedThrough,bufferStart),end:now+180000,reasons:[],pendingGoals:{},goalTail:0};
+export function mergeHighlightWindow(current,reasons,now,{recordedThrough=0,bufferStart=0,prebufferSeconds=0}={}){
+ const h=current?{...current,reasons:[...current.reasons],pendingGoals:{...current.pendingGoals}}:{start:Math.max(now-prebufferSeconds*1000,recordedThrough,bufferStart),end:now+180000,reasons:[],pendingGoals:{},goalTail:0};
  const merged=new Map(h.reasons.map(r=>[r.kind+(r.cycle??''),r]));
  for(const r of reasons){merged.set(r.kind+(r.cycle??''),r);
   if(r.kind==='goalNear')h.pendingGoals[r.cycle]={key:r.goalKey,at:r.at};

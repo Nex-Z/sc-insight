@@ -38,6 +38,6 @@ test('consecutive goals extend a single clip; ordinary clips keep cap and exclud
  let h=mergeHighlightWindow(null,[{kind:'goalComplete',cycle:1,at:1000000}],1000000);
  h=mergeHighlightWindow(h,[{kind:'goalComplete',cycle:2,at:1200000}],1200000);assert.equal(h.end,2100000);
  const normal=mergeHighlightWindow(null,[{kind:'tips'}],1000000);assert.equal(mergeHighlightWindow(normal,[{kind:'tips'}],2000000).end,normal.start+900000);
- assert.equal(mergeHighlightWindow(null,[],1000000,{recordedThrough:990000}).start,990000);
- assert.equal(mergeHighlightWindow(null,[],1000000,{bufferStart:995000}).start,995000);
+ assert.equal(mergeHighlightWindow(null,[],1000000,{recordedThrough:990000,prebufferSeconds:120}).start,990000);
+ assert.equal(mergeHighlightWindow(null,[],1000000,{bufferStart:995000,prebufferSeconds:120}).start,995000);
 });

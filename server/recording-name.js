@@ -13,3 +13,10 @@ export function recordingFilename(username,date=new Date()){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Hong_Kong',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(date).map(p=>[p.type,p.value]));
  return `${name}-${parts.year}-${parts.month}-${parts.day}_${parts.hour}-${parts.minute}-${parts.second}-${String(date.getUTCMilliseconds()).padStart(3,'0')}.mp4`;
 }
+export function highlightFilename(username,date,unique){
+ return `${recordingFilename(username,date).slice(0,-4)}-highlight-${unique}.mp4`;
+}
+export function highlightDownloadFilename(record,username){
+ if(record.filename?.startsWith(safeUsername(username)+'-')&&record.filename.endsWith('.mp4'))return record.filename;
+ return highlightFilename(username,new Date(record.triggered_at||record.started_at),record.id);
+}

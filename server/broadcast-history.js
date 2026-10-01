@@ -29,18 +29,22 @@ export function classifyObservation(previous,current,intervalSeconds){
  return {seconds:continuous&&previous.online&&current.online?seconds:0,gap:!!previous&&!continuous,startKnown:continuous&&previous.online===false&&current.online===true};
 }
 // Caller holds the model row lock and commits the sample and session together.
-export async function recordBroadcast(db,modelId,sample,intervalSeconds,time=new Date()){
+export async function recordBroadcast(db,modelId,sample,intervalSeconds,time=new Date(),summary){
  const previous=(await db.query('SELECT * FROM broadcast_observations WHERE model_id=$1 AND error IS NULL ORDER BY observed_at DESC,id DESC LIMIT 1',[modelId])).rows[0];
  let active=(await db.query('SELECT * FROM broadcast_sessions WHERE model_id=$1 AND ended_at IS NULL',[modelId])).rows[0];
- const decision=classifyObservation(previous,{time,online:sample.online},intervalSeconds);
+ const firstTime=summary?new Date(summary.firstTime):time;
+ const decision=classifyObservation(previous,{time:firstTime,online:sample.online},intervalSeconds);
+ if(summary?.forceGap&&previous){decision.gap=true;decision.seconds=0;decision.startKnown=false;}
  let failedSince=false;
  if(previous){const failed=await db.query('SELECT 1 FROM broadcast_observations WHERE model_id=$1 AND error IS NOT NULL AND observed_at>$2 LIMIT 1',[modelId,previous.observed_at]);if(failed.rowCount){failedSince=true;decision.seconds=0;decision.startKnown=false;}}
  if(active&&decision.gap){await db.query("UPDATE broadcast_sessions SET ended_at=last_seen,end_reason='observation_gap',incomplete=true WHERE id=$1",[active.id]);active=null;}
- if(sample.online&&!active){active=(await db.query('INSERT INTO broadcast_sessions(model_id,first_seen,last_seen,start_known,incomplete) VALUES($1,$2,$2,$3,$4) RETURNING *',[modelId,time,decision.startKnown,!decision.startKnown])).rows[0];}
+ if(sample.online&&!active){active=(await db.query('INSERT INTO broadcast_sessions(model_id,first_seen,last_seen,start_known,incomplete) VALUES($1,$2,$2,$3,$4) RETURNING *',[modelId,firstTime,decision.startKnown,!decision.startKnown])).rows[0];}
  if(active&&sample.online){
   const seconds=previous?.session_id===active.id?decision.seconds:0;
-  await db.query('UPDATE broadcast_sessions SET last_seen=$2,observed_seconds=observed_seconds+$3,samples=samples+1,viewer_samples=coalesce(viewer_samples,0)+CASE WHEN $4::double precision IS NULL THEN 0 ELSE 1 END,viewer_sum=viewer_sum+coalesce($4,0),peak_viewers=greatest(peak_viewers,$4) WHERE id=$1',[active.id,time,seconds,sample.viewers]);
-  if(seconds>0)await db.query('INSERT INTO broadcast_intervals(model_id,session_id,started_at,ended_at,viewer_average,room_status) VALUES($1,$2,$3,$4,$5,$6)',[modelId,active.id,previous.observed_at,time,previous.viewers!=null&&sample.viewers!=null?(previous.viewers+sample.viewers)/2:null,previous.room_status===sample.room_status?sample.room_status:null]);
+  await db.query('UPDATE broadcast_sessions SET last_seen=$2,observed_seconds=observed_seconds+$3,samples=samples+$5,viewer_samples=coalesce(viewer_samples,0)+$6,viewer_sum=viewer_sum+coalesce($4,0),peak_viewers=greatest(peak_viewers,$7) WHERE id=$1',[active.id,time,seconds+(summary?.internalSeconds||0),summary?.viewerSum??sample.viewers,summary?.count??1,summary?.viewerCount??(sample.viewers==null?0:1),summary?.peak??sample.viewers]);
+  const firstViewers=summary?summary.firstViewers:sample.viewers;
+  if(seconds>0)await db.query('INSERT INTO broadcast_intervals(model_id,session_id,started_at,ended_at,viewer_average,room_status) VALUES($1,$2,$3,$4,$5,$6)',[modelId,active.id,previous.observed_at,firstTime,previous.viewers!=null&&firstViewers!=null?(previous.viewers+firstViewers)/2:null,previous.room_status===sample.room_status?sample.room_status:null]);
+  if(summary?.internalSeconds>0)await db.query('INSERT INTO broadcast_intervals(model_id,session_id,started_at,ended_at,viewer_average,room_status) VALUES($1,$2,$3,$4,$5,$6)',[modelId,active.id,firstTime,time,summary.internalAverage,sample.room_status]);
  }else if(active&&sample.online===false){await db.query("UPDATE broadcast_sessions SET ended_at=$2,end_known=true,end_reason='offline_observed' WHERE id=$1",[active.id,time]);}
  else if(active){await db.query('UPDATE broadcast_sessions SET incomplete=true WHERE id=$1',[active.id]);}
  if(previous&&!decision.gap&&!failedSince&&typeof previous.online==='boolean'&&typeof sample.online==='boolean'&&previous.online!==sample.online){

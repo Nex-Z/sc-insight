@@ -1,0 +1,87 @@
+import 'dotenv/config';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {spawn} from 'node:child_process';
+import pg from 'pg';
+import express from 'express';
+import {chromium,expect} from '@playwright/test';
+import {pool} from './db.js';
+import {insightRoutes} from './insight-routes.js';
+import {highlightRoutes} from './highlight-routes.js';
+const schema='library_check_'+Date.now(),admin=new pg.Client({connectionTimeoutMillis:5000});
+const root=path.resolve('artifacts',schema);await fs.mkdir(root,{recursive:true});
+let server,browser;
+await admin.connect();await admin.query(`CREATE SCHEMA ${schema}`);pool.options.options=`-c search_path=${schema}`;
+try{
+ await new Promise((resolve,reject)=>{const child=spawn(process.execPath,['server/init.js'],{env:{...process.env,PGOPTIONS:`-c search_path=${schema}`},windowsHide:true,stdio:['ignore','pipe','pipe']});let log='';child.stdout.on('data',d=>log+=d);child.stderr.on('data',d=>log+=d);child.on('error',reject);child.on('close',code=>code?reject(Error(log)):resolve());});
+ await pool.query("INSERT INTO settings(key,value) VALUES('storage',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",[{directory:root}]);
+ const model=(await pool.query("INSERT INTO models(name,country,language,color) VALUES('整理验收','测试','测试','#888') RETURNING id")).rows[0];
+ const seeds=[['短高光','highlight',30,1000,'已完成',false,false],['收藏录像','recording',600,4000,'已完成',true,true],['已看录像','recording',90,3000,'已完成',false,true],['失败录像','recording',0,0,'失败',false,false],['正在录制','recording',100,2000,'录制中',false,false]];
+ const records=[];
+ for(const [title,kind,seconds,bytes,status,favorite,watched] of seeds){
+  const filename=title+'.mp4';await fs.copyFile('artifacts/highlight-fixture.mp4',path.join(root,filename));
+  const table=kind==='recording'?'recordings':'highlights';
+  const item=(await pool.query(`INSERT INTO ${table}(model_id,directory,filename,status,duration_seconds,bytes,started_at,${kind==='highlight'?'triggered_at':'created_at'}) VALUES($1,$2,$3,$4,$5,$6,'2026-09-24T16:30:00Z','2026-09-24T16:30:00Z') RETURNING *`,[model.id,root,filename,status,seconds,bytes])).rows[0];
+  await pool.query('INSERT INTO content_metadata(kind,item_id,title,note,tags,marks,favorite,watched) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[kind,item.id,title,'保留备注','["保留标签"]','[]',favorite,watched]);records.push({...item,kind,title});
+ }
+ const app=express();app.use(express.json());app.use('/api',insightRoutes,highlightRoutes);
+ app.get('/api/state',(req,res)=>res.json({models:[],recordings:[],rules:[],events:[],history:[],heatmap:[]}));
+ app.get('/api/storage',(req,res)=>res.json({directory:root}));
+ app.get('/api/:type/:id/file',async(req,res)=>{const kind=req.params.type==='highlights'?'highlight':'recording',item=records.find(m=>m.kind===kind&&String(m.id)===req.params.id);res.sendFile(path.join(root,item.filename));});
+ app.use(express.static('dist'));app.use((e,req,res,next)=>{console.error(e);res.status(500).json({error:e.message});});
+ server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const base=`http://127.0.0.1:${server.address().port}`;
+ const api=async(url,body,method='GET')=>{const r=await fetch(base+'/api'+url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const data=await r.json();assert.ok(r.ok,JSON.stringify(data));return data;};
+ const list=async q=>(await api('/content?'+q)).items;
+ const summary=await api('/content');assert.equal(summary.total,5);assert.equal(summary.recordingCount,4);assert.equal(summary.highlightCount,1);assert.equal(summary.totalPages,1);
+ const emptyPage=await api('/content?offset=24');assert.equal(emptyPage.total,5);assert.equal(emptyPage.items.length,0);
+ const emptySearch=await api('/content?q=not-found');assert.equal(emptySearch.total,0);assert.equal(emptySearch.totalPages,0);
+ assert.equal((await api('/content?kind=highlight')).recordingCount,0);
+ assert.equal((await list('view=cleanup')).length,1);assert.equal((await list('view=favorite')).length,1);
+ assert.equal((await list('duration=short')).length,1);assert.equal((await list('duration=medium')).length,2);assert.equal((await list('duration=long')).length,1);
+ assert.equal((await list('status=active')).length,1);assert.equal((await list('status=failed')).length,1);assert.equal((await list('status=playable')).length,3);
+ assert.equal((await list('from=2026-09-25&to=2026-09-25')).length,5);assert.equal((await list('to=2026-09-24')).length,0);
+ assert.equal((await list('sort=largest'))[0].title,'收藏录像');assert.equal((await list('kind=highlight'))[0].title,'短高光');
+ for(const q of ['from=2026-02-30','from=2026-09-26&to=2026-09-25','sort=bytes;DELETE','duration=unknown'])assert.equal((await fetch(base+'/api/content?'+q)).status,400);
+ const h=records[0],r=records[1];
+ const download=await fetch(base+`/api/highlights/${h.id}/file?download=1`,{headers:{Range:'bytes=0-1023'}});assert.equal(download.status,206);assert.equal((await download.arrayBuffer()).byteLength,1024);assert.ok(decodeURIComponent(download.headers.get('content-disposition')).includes('整理验收-2026-09-25_00-30-00-000-highlight-'));
+ await api(`/content/highlight/${h.id}`,{favorite:true},'PATCH');let saved=await api(`/content/highlight/${h.id}`);assert.equal(saved.note,'保留备注');assert.deepEqual(saved.tags,['保留标签']);assert.equal(saved.watched,false);
+ const blocked=await fetch(base+`/api/content/highlight/${h.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,protectFavorite:true})});assert.equal(blocked.status,409);await fs.access(path.join(root,h.filename));
+ await api(`/content/highlight/${h.id}`,{favorite:false},'PATCH');
+ console.log('PASS real PostgreSQL: filters, HK date boundary, sorting, PATCH preservation, protected favorite deletion');
+ browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(base+'/#library');const rows=page.locator('.library-row');await expect(rows).toHaveCount(5);
+ await expect(page.getByRole('navigation',{name:'列表顶部分页'})).toContainText('共 5 条 · 录像 4 条 · 高光 1 条 · 第 1 / 1 页');
+ const short=rows.filter({hasText:'短高光'});await short.getByRole('button',{name:'♡ 收藏',exact:true}).click();await expect(short.getByRole('button',{name:'♥ 已收藏',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'收藏',exact:true}).click();await expect(rows).toHaveCount(2);
+ await expect(page.getByRole('navigation',{name:'列表顶部分页'})).toContainText('共 2 条 · 录像 1 条 · 高光 1 条');
+ await page.getByRole('button',{name:'全部',exact:true}).click();await expect(rows).toHaveCount(5);
+ await short.getByRole('button',{name:'♥ 已收藏',exact:true}).click();await expect(short.getByRole('button',{name:'♡ 收藏',exact:true})).toBeVisible();
+ await page.getByLabel('排序方式').selectOption('largest');await expect(rows.first()).toContainText('收藏录像');
+ await page.getByRole('button',{name:'不足 1 分钟',exact:true}).click();await expect(rows).toHaveCount(1);await page.getByRole('button',{name:'重置筛选'}).click();await expect(rows).toHaveCount(5);
+ await short.getByRole('button',{name:'播放',exact:true}).click();const dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();
+ const pendingDownload=page.waitForEvent('download');await dialog.getByRole('link',{name:'下载原视频'}).click();const downloaded=await pendingDownload;assert.ok(downloaded.suggestedFilename().startsWith('整理验收-'));assert.equal(await downloaded.failure(),null);await expect(dialog).toBeVisible();
+ await page.waitForFunction(()=>document.querySelector('dialog video')?.readyState>=2);await page.locator('dialog video').evaluate(v=>{v.muted=true;return v.play();});await page.waitForFunction(()=>document.querySelector('dialog video').currentTime>.2);
+ await dialog.getByRole('button',{name:'标记已看',exact:true}).click();await expect(dialog.getByRole('button',{name:'已看 · 标为未看'})).toBeVisible();
+ await dialog.getByRole('button',{name:'下一条',exact:true}).click();await expect(dialog).toContainText('已看录像');await dialog.getByRole('button',{name:'上一条',exact:true}).click();await expect(dialog.locator('video')).toBeVisible();
+ await dialog.getByRole('button',{name:'查看与整理'}).click();await page.getByLabel('内容标题').fill('短高光已整理');await page.getByRole('button',{name:'保存内容信息'}).click();await expect(page.getByText('已保存',{exact:true})).toBeVisible();await page.getByRole('button',{name:'关闭播放'}).click();await expect(page.getByRole('dialog')).toContainText('短高光已整理');await page.keyboard.press('Escape');await expect(page.locator('dialog')).toHaveCount(0);
+ await page.getByLabel('全选本页可清理内容').check();await expect(page.locator('.library-batch')).toContainText('已选 3 条');
+ await page.getByRole('button',{name:'清理所选'}).click();await page.getByRole('button',{name:'取消',exact:true}).click();await expect(rows).toHaveCount(5);
+ // A favorite changed elsewhere after selection must remain intact at deletion time.
+ await api(`/content/highlight/${h.id}`,{favorite:true},'PATCH');
+ await page.getByRole('button',{name:'清理所选'}).click();await page.getByRole('button',{name:'确认永久删除'}).click();await expect(page.getByText('已删除 2 条，未删除 1 条。',{exact:true})).toBeVisible();await expect(page.getByRole('alertdialog')).toContainText('已收藏的内容已跳过');await page.getByRole('button',{name:'完成',exact:true}).click();await expect(rows).toHaveCount(3);
+ await fs.access(path.join(root,h.filename));await fs.access(path.join(root,r.filename));await assert.rejects(fs.access(path.join(root,records[2].filename)));
+ // New pages clear selection; removing the last item on a later page returns to the previous page.
+ await pool.query("INSERT INTO recordings(model_id,filename,status,duration_seconds,bytes) SELECT $1,'分页-'||n||'.mp4','失败',0,0 FROM generate_series(1,22) n",[model.id]);
+ await page.getByRole('button',{name:'重置筛选'}).click();await page.reload();await expect(rows).toHaveCount(24);await page.getByLabel('全选本页可清理内容').check();await page.getByRole('button',{name:'下一页',exact:true}).first().click();await expect(rows).toHaveCount(1);await expect(page.locator('.library-batch')).toContainText('已选 0 条');
+ await page.getByRole('button',{name:'上一页',exact:true}).first().click();await expect(rows).toHaveCount(24);
+ await page.getByLabel('排序方式').selectOption('oldest');await expect(rows).toHaveCount(24);await page.getByRole('button',{name:'下一页',exact:true}).first().click();await expect(rows).toHaveCount(1);
+ await rows.getByRole('button',{name:'删除内容'}).click();await page.getByRole('button',{name:'确认永久删除'}).click();await page.getByRole('button',{name:'完成',exact:true}).click();await expect(rows).toHaveCount(24);await expect(page.getByRole('button',{name:'上一页',exact:true})).toHaveCount(0);
+ await page.getByLabel('搜索内容').fill('短高光');await expect(rows).toHaveCount(1);
+ await page.screenshot({path:path.join(root,'library-desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.locator('.sidebar').evaluate(el=>Math.round(el.getBoundingClientRect().width))).toBe(58);await page.screenshot({path:path.join(root,'library-mobile.png'),fullPage:true});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth));
+ await page.getByLabel('搜索内容').fill('短高光');await expect(rows).toHaveCount(1);await rows.getByRole('button',{name:'播放',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();assert.ok(await page.locator('dialog').evaluate(d=>d.scrollWidth<=d.clientWidth+1));await page.screenshot({path:path.join(root,'player-mobile.png')});
+ assert.deepEqual(errors,[]);console.log('PASS browser: quick favorites, filter/sort, real playback, next/previous, editor, selection/cancel, partial deletion, favorite race protection, pagination, mobile fit');console.log('Screenshots: '+root);
+}finally{
+ await browser?.close();if(server){server.closeAllConnections();await new Promise(r=>server.close(r));}await pool.end();
+ assert.match(schema,/^library_check_\d+$/);await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();
+}

@@ -1,6 +1,6 @@
 {
   "name": "sc-insight",
-  "version": "0.1.10",
+  "version": "0.1.19",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,9 @@
     "test:source:http": "node --use-env-proxy server/model-source-integration.js",
     "test:source:ui": "node server/model-recording-ui-check.js",
     "build:release": "npm run build && node scripts/build-release.mjs",
-    "test:insights": "npm run build && node server/insight-integration.js"
+    "test:insights": "npm run build && node server/insight-integration.js",
+    "test:library": "npm run build && node server/content-library-check.js",
+    "test:library:scroll": "npm run build && node server/library-scroll-ui-check.js"
   },
   "dependencies": {
     "dotenv": "^17.2.0",

@@ -6,17 +6,19 @@ import {highlightDefaults} from './highlight-detection.js';
 const app=express();app.use(express.static('dist'));app.use('/fixture',express.static('artifacts'));
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const browser=await chromium.launch({channel:'msedge',headless:true});
 try{
- const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});let enabled=false,config={...highlightDefaults};
+ const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message);});let enabled=false,config={...highlightDefaults},deleted=false,deleteCalls=0;
  const item={id:'1',triggered_at:new Date().toISOString(),started_at:new Date(Date.now()-120000).toISOString(),reasons:[{kind:'viewers',text:'人数 180 → 310'},{kind:'tips',text:'30 秒内 800 TK'}],status:'已完成',duration_seconds:150,bytes:1000};
  const model={id:1,name:'HighlightTest',source_id:'1',fresh:true,online:true,favorite:true,room_status:'public'};
  await page.route('**/api/**',async route=>{const url=new URL(route.request().url()),p=url.pathname;let data={};
   if(p==='/api/state')data={models:[model],recordings:[],rules:[],events:[],history:[],heatmap:[]};
   else if(p==='/api/highlights/1/file')return route.continue({url:`http://127.0.0.1:${server.address().port}/fixture/highlight-fixture.mp4`});
-  else if(p.endsWith('/highlights')){if(route.request().method()==='PUT'){const body=route.request().postDataJSON();enabled=body.enabled;config=body.config;data={ok:true,enabled,config};}else data={enabled,config,state:{status:'监测中 · 已缓存'},items:url.search?'':enabled?[item]:[],nextBefore:null};}
+  else if(p==='/api/content/highlight/1'&&route.request().method()==='DELETE'){deleteCalls++;assert.equal(route.request().postDataJSON().confirm,true);deleted=true;data={ok:true};}
+  else if(p.endsWith('/highlights')){if(route.request().method()==='PUT'){const body=route.request().postDataJSON();enabled=body.enabled;config=body.config;data={ok:true,enabled,config};}else data={enabled,config,state:{status:'监测中 · 已缓存'},items:url.search?'':enabled&&!deleted?[item]:[],nextBefore:null};}
   else if(p.endsWith('/broadcasts'))data={sessions:[],daily:[],quality:{},changes:[]};
   else if(p.endsWith('/engagement'))data={coverage:[],totals:{},daily:[],counts:[],states:[]};
-  else if(p.endsWith('/public-profile'))data={menu:{items:[]},reviews:{items:[]},albums:{items:[]},languages:[],unavailable:[]};
+  else if(p.endsWith('/public-profile'))data={menu:{enabled:true,items:[{activity:'点歌',price:300},{activity:'问候',price:50}]},reviews:{items:[]},albums:{items:[]},languages:[],unavailable:[]};
   else if(p.endsWith('/activity'))data={daily:[{day:'2026-09-13',seconds:0,samples:0,starts:0,partial:0}],hours:Array.from({length:168},(_,i)=>({weekday:Math.floor(i/24),hour:i%24,seconds:0,starts:0,samples:0}))};
+  else if(p.endsWith('/comparison'))data={current:{},previous:{},messageRates:[null,null],tokenRates:[null,null]};
   else if(p.endsWith('/history'))data=[];
   await route.fulfill({json:data});
  });
@@ -25,9 +27,33 @@ try{
  await page.getByRole('checkbox',{name:'目标即将完成提醒',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.goal-controls input')?.checked);assert.equal(config.goalNotify,true);
  assert.equal(await page.getByLabel('人数增幅（%）').count(),0);
  await page.getByRole('checkbox',{name:'人数变多',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('input[aria-label="人数变多"]').checked);assert.equal(config.viewerRecord,false);assert.equal(config.tipRecord,true);
- await page.getByRole('button',{name:'高级设置'}).click();assert.equal(await page.getByLabel('人数增幅（%）').inputValue(),'30');await page.getByLabel('人数增幅（%）').fill('45');await page.getByLabel('人数至少增加').fill('75');await page.getByLabel('目标剩余比例（%）').fill('2');await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByRole('button',{name:'高级设置'}).waitFor();assert.equal(config.viewerRatio,.45);assert.equal(config.viewerIncrease,75);assert.equal(config.goalNearPercent,2);
- await page.getByRole('button',{name:'播放高光'}).click();await page.waitForFunction(()=>document.querySelector('.highlight-player video')?.readyState>=2);await page.evaluate(()=>{const v=document.querySelector('.highlight-player video');v.muted=true;return v.play();});await page.waitForFunction(()=>document.querySelector('.highlight-player video').currentTime>0.2);
- await page.getByRole('button',{name:'关闭播放'}).click();await fs.mkdir('artifacts',{recursive:true});await page.screenshot({path:'artifacts/highlights-desktop.png',fullPage:true});
+ await page.getByRole('button',{name:'高级设置'}).click();assert.equal(await page.getByLabel('人数增幅（%）').inputValue(),'30');assert.equal(await page.getByLabel('提前缓存秒数（0–300）').inputValue(),'0');await page.getByLabel('提前缓存秒数（0–300）').fill('60');await page.getByLabel('人数增幅（%）').fill('45');await page.getByLabel('人数至少增加').fill('75');await page.getByLabel('目标剩余比例（%）').fill('2');await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByRole('button',{name:'高级设置'}).waitFor();assert.equal(config.prebufferSeconds,60);assert.equal(config.viewerRatio,.45);assert.equal(config.viewerIncrease,75);assert.equal(config.goalNearPercent,2);
+ await page.getByText('提前缓存：60 秒',{exact:false}).waitFor();
+ await page.getByRole('button',{name:'高级设置'}).click();await page.getByLabel('提前缓存秒数（0–300）').fill('0');await page.getByRole('button',{name:'保存设置',exact:true}).click();await page.getByRole('button',{name:'高级设置'}).waitFor();assert.equal(config.prebufferSeconds,0);
+ await page.getByRole('checkbox',{name:'普通小费',exact:true}).check();
+ await page.getByLabel('普通小费单笔至少（TK）').fill('200');
+ await page.getByRole('checkbox',{name:'菜单打赏',exact:true}).check();
+ await page.getByRole('button',{name:'查看主播菜单',exact:true}).nth(1).click();
+ await page.getByRole('dialog',{name:'HighlightTest · 小费菜单参考'}).waitFor();
+ assert.equal(await page.locator('.highlight-menu-items button').first().innerText(),'50 TK');
+ await page.getByRole('button',{name:'300 TK',exact:true}).click();
+ assert.equal(await page.getByLabel('菜单打赏单笔至少（TK）').inputValue(),'300');
+ assert.equal(config.menuTipRecord,false);
+ await page.getByRole('button',{name:'保存单笔条件',exact:true}).click();
+ await page.waitForResponse(r=>r.url().endsWith('/highlights')&&r.request().method()==='GET');
+ assert.equal(config.plainTipRecord,true);assert.equal(config.menuTipRecord,true);assert.equal(config.plainTipMinimum,200);assert.equal(config.menuTipMinimum,300);
+ await page.reload();await page.getByRole('tab',{name:'高光时刻',exact:true}).click();await page.getByRole('checkbox',{name:'菜单打赏',exact:true}).waitFor();
+ assert.equal(await page.getByRole('checkbox',{name:'菜单打赏',exact:true}).isChecked(),true);
+ assert.equal(await page.getByLabel('普通小费单笔至少（TK）').inputValue(),'200');
+ await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'查看主播菜单',exact:true}).first().click();await page.getByRole('button',{name:'50 TK',exact:true}).waitFor();
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await page.screenshot({path:'artifacts/highlight-menu-mobile.png',fullPage:true});await page.keyboard.press('Escape');await page.setViewportSize({width:1440,height:1000});
+ await page.getByRole('button',{name:'播放高光'}).click();await page.waitForFunction(()=>document.querySelector('.highlight-player-dialog video')?.readyState>=2);await page.evaluate(()=>{const v=document.querySelector('.highlight-player-dialog video');v.muted=true;return v.play();});await page.waitForFunction(()=>document.querySelector('.highlight-player-dialog video').currentTime>0.2);
+ await page.getByRole('button',{name:'全屏播放'}).click();await page.waitForFunction(()=>!!document.fullscreenElement);await page.evaluate(()=>document.exitFullscreen());
+ await page.getByRole('button',{name:'关闭播放'}).click();assert.equal(await page.locator('dialog video').count(),0);
+ await page.getByRole('button',{name:'删除高光',exact:true}).click();await page.getByRole('alertdialog').waitFor();assert.equal(deleteCalls,0);await page.getByRole('button',{name:'取消',exact:true}).click();assert.equal(deleteCalls,0);
+ await page.getByRole('button',{name:'删除高光',exact:true}).click();await page.getByRole('button',{name:'确认永久删除'}).click();await page.getByText('高光已删除',{exact:true}).waitFor();assert.equal(deleteCalls,1);assert.equal(await page.getByRole('button',{name:'播放高光'}).count(),0);
+ await fs.mkdir('artifacts',{recursive:true});await page.getByRole('button',{name:'高级设置'}).click();await page.screenshot({path:'artifacts/highlights-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().width<=59);await page.screenshot({path:'artifacts/highlights-mobile.png',fullPage:true});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
  await page.getByRole('checkbox',{name:'高光录制'}).click();await page.getByText('已关闭',{exact:true}).waitFor();assert.equal(enabled,false);assert.deepEqual(errors,[]);console.log('PASS detail tab, empty state, enable, settings save, actual video playback, disable, mobile width; no JS errors');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

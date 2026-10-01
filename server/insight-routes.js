@@ -1,3 +1,5 @@
+import {deleteContentRoute} from './content-delete.js';
+import {contentFilters} from './content-filters.js';
 import express from 'express';
 import {pool} from './db.js';
 import {comparePeriods,validateMetadata} from './insight-logic.js';
@@ -11,25 +13,46 @@ const metadataSql=`coalesce(md.title,'') AS title,coalesce(md.tags,'[]'::jsonb) 
 insightRoutes.get('/content',async(req,res)=>{
  const q=String(req.query.q||'').slice(0,200),model=req.query.model||null,kind=req.query.kind||'',offset=Number(req.query.offset||0),date=req.query.date||null,session=req.query.session||null;
  if(model&&!validModel(model)||session&&!validId(session)||!['','recording','highlight'].includes(kind)||!Number.isSafeInteger(offset)||offset<0||offset>100000||date&&!validDate(date))return res.status(400).json({error:'无效内容筛选'});
- const {rows}=await pool.query(`WITH media AS (${mediaSql}) SELECT c.*,m.name,${metadataSql} FROM media c LEFT JOIN models m ON m.id=c.model_id LEFT JOIN content_metadata md ON md.kind=c.kind AND md.item_id=c.id
+ let filters;try{filters=contentFilters(req.query);}catch(e){return res.status(400).json({error:e.message});}
+ const {rows}=await pool.query(`WITH media AS (${mediaSql}),filtered AS (SELECT c.*,m.name,${metadataSql} FROM media c LEFT JOIN models m ON m.id=c.model_id LEFT JOIN content_metadata md ON md.kind=c.kind AND md.item_id=c.id
  WHERE ($1::bigint IS NULL OR c.model_id=$1) AND ($2='' OR c.kind=$2) AND ($3='' OR concat_ws(' ',c.filename,m.name,md.title,md.tags::text,md.note,c.reasons::text) ILIKE '%'||$3||'%')
  AND (NOT $4 OR md.favorite) AND (NOT $5 OR NOT coalesce(md.watched,false))
  AND ($6::date IS NULL OR (coalesce(c.started_at,c.created_at) AT TIME ZONE 'Asia/Hong_Kong')::date=$6)
  AND ($7::bigint IS NULL OR EXISTS(SELECT 1 FROM broadcast_sessions s WHERE s.id=$7 AND s.model_id=c.model_id AND c.started_at<=coalesce(s.ended_at,s.last_seen) AND coalesce(c.finished_at,now())>=s.first_seen))
- ORDER BY c.created_at DESC,c.kind,c.id DESC LIMIT 25 OFFSET $8`,[model,kind,q,req.query.favorite==='true',req.query.unwatched==='true',date,session,offset]);
- res.json({items:rows.slice(0,24),nextOffset:rows.length>24?offset+24:null});
+ ${filters.sql}) SELECT c.*,stats.total,stats.recording_count,stats.highlight_count FROM
+ (SELECT count(*)::int AS total,count(*) FILTER(WHERE kind='recording')::int AS recording_count,count(*) FILTER(WHERE kind='highlight')::int AS highlight_count FROM filtered) stats
+ LEFT JOIN LATERAL (SELECT * FROM filtered c ORDER BY ${filters.order} LIMIT 25 OFFSET $8) c ON true`,[model,kind,q,req.query.favorite==='true',req.query.unwatched==='true',date,session,offset,...filters.values]);
+ const {total,recording_count,highlight_count}=rows[0],items=rows.filter(r=>r.id!=null).map(({total,recording_count,highlight_count,...item})=>item);
+ res.json({items:items.slice(0,24),nextOffset:items.length>24?offset+24:null,total,recordingCount:recording_count,highlightCount:highlight_count,pageSize:24,totalPages:Math.ceil(total/24)});
 });
 insightRoutes.get('/content/:kind/:id',async(req,res)=>{
  if(!['recording','highlight'].includes(req.params.kind)||!validId(req.params.id))return res.status(400).json({error:'无效内容 ID'});
  const {rows}=await pool.query(`WITH media AS (${mediaSql}) SELECT c.*,m.name,${metadataSql} FROM media c LEFT JOIN models m ON m.id=c.model_id LEFT JOIN content_metadata md ON md.kind=c.kind AND md.item_id=c.id WHERE c.kind=$1 AND c.id=$2`,[req.params.kind,req.params.id]);
  if(!rows.length)return res.status(404).json({error:'内容不存在'});res.json(rows[0]);
 });
+insightRoutes.patch('/content/:kind/:id',async(req,res)=>{
+ const {kind,id}=req.params,body=req.body||{};
+ if(!['recording','highlight'].includes(kind)||!validId(id)||!Object.keys(body).length||Object.keys(body).some(k=>!['favorite','watched'].includes(k)||typeof body[k]!=='boolean'))return res.status(400).json({error:'无效内容标记'});
+ const db=await pool.connect();
+ try{
+  await db.query('BEGIN');
+  const {rows}=await db.query(`SELECT id FROM ${kind==='recording'?'recordings':'highlights'} WHERE id=$1 FOR UPDATE`,[id]);
+  if(!rows.length){await db.query('ROLLBACK');return res.status(404).json({error:'内容不存在'});}
+  const fields=Object.keys(body),columns=fields.join(','),slots=fields.map((_,i)=>'$'+(i+3)).join(',');
+  const result=await db.query(`INSERT INTO content_metadata(kind,item_id,${columns}) VALUES($1,$2,${slots}) ON CONFLICT(kind,item_id) DO UPDATE SET ${fields.map(k=>`${k}=EXCLUDED.${k}`).join(',')},updated_at=now() RETURNING *`,[kind,id,...fields.map(k=>body[k])]);
+  await db.query('COMMIT');res.json(result.rows[0]);
+ }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
+});
 insightRoutes.put('/content/:kind/:id',async(req,res)=>{
  const {kind,id}=req.params;if(!['recording','highlight'].includes(kind)||!validId(id))return res.status(400).json({error:'无效内容 ID'});
- const {rows}=await pool.query(`SELECT duration_seconds FROM ${kind==='recording'?'recordings':'highlights'} WHERE id=$1::bigint`,[id]);if(!rows.length)return res.status(404).json({error:'内容不存在'});
- let v;try{v=validateMetadata(req.body,Number(rows[0].duration_seconds));}catch(e){return res.status(400).json({error:e.message});}
- await pool.query(`INSERT INTO content_metadata(kind,item_id,title,tags,favorite,watched,note,marks) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(kind,item_id) DO UPDATE SET title=$3,tags=$4,favorite=$5,watched=$6,note=$7,marks=$8,updated_at=now()`,[kind,id,v.title,JSON.stringify(v.tags),v.favorite,v.watched,v.note,JSON.stringify(v.marks)]);
- res.json(v);
+ const db=await pool.connect();
+ try{
+  await db.query('BEGIN');
+  const {rows}=await db.query(`SELECT duration_seconds FROM ${kind==='recording'?'recordings':'highlights'} WHERE id=$1::bigint FOR UPDATE`,[id]);if(!rows.length){await db.query('ROLLBACK');return res.status(404).json({error:'内容不存在'});}
+  let v;try{v=validateMetadata(req.body,Number(rows[0].duration_seconds));}catch(e){await db.query('ROLLBACK');return res.status(400).json({error:e.message});}
+  await db.query(`INSERT INTO content_metadata(kind,item_id,title,tags,favorite,watched,note,marks) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(kind,item_id) DO UPDATE SET title=$3,tags=$4,favorite=$5,watched=$6,note=$7,marks=$8,updated_at=now()`,[kind,id,v.title,JSON.stringify(v.tags),v.favorite,v.watched,v.note,JSON.stringify(v.marks)]);
+  await db.query('COMMIT');res.json(v);
+ }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
 });
 insightRoutes.get('/models/:id/sessions/:session',async(req,res)=>{
  const {id,session}=req.params;if(!validModel(id)||!validId(session))return res.status(400).json({error:'无效场次 ID'});
@@ -75,3 +98,5 @@ insightRoutes.get('/models/:id/comparison',async(req,res)=>{
  LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE kind='text') AS messages,sum(amount) FILTER(WHERE kind='tip') AS tokens FROM chat_events e WHERE model_id=$1 AND source='live' AND message_at>=p.lo AND message_at<p.hi AND EXISTS(SELECT 1 FROM chat_coverage cc WHERE cc.model_id=e.model_id AND e.message_at BETWEEN cc.started_at AND coalesce(cc.ended_at,cc.last_seen))) t ON true LEFT JOIN LATERAL (SELECT extract(hour from first_seen AT TIME ZONE 'Asia/Hong_Kong')::int AS hour,count(*)::int AS count FROM broadcast_sessions WHERE model_id=$1 AND start_known AND first_seen>=p.lo AND first_seen<p.hi GROUP BY 1 ORDER BY count(*) DESC,1 LIMIT 1) starts ON true ORDER BY p.period`,[req.params.id]);
  res.json(comparePeriods(rows));
 });
+
+insightRoutes.delete('/content/:kind/:id',deleteContentRoute());

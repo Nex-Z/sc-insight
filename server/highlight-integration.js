@@ -20,6 +20,16 @@ try{
  const endpoint=base+`/api/models/${model.id}/highlights`;
  assert.equal((await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:'yes'})})).status,400);
  assert.equal((await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true})})).status,200);
+ assert.equal((await (await fetch(endpoint)).json()).config.prebufferSeconds,0);
+ for(const choice of ['plainTipRecord','menuTipRecord']){
+  const config={viewerRecord:false,tipRecord:false,goalRecord:false,[choice]:true,plainTipMinimum:200,menuTipMinimum:300};
+  assert.equal((await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,config})})).status,200);
+  const saved=(await (await fetch(endpoint)).json()).config;assert.equal(saved[choice],true);assert.equal(saved.plainTipMinimum,200);assert.equal(saved.menuTipMinimum,300);
+ }
+ assert.equal((await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,config:{viewerRecord:false,tipRecord:false,goalRecord:false}})})).status,400);
+
+ for(const n of [-1,301,1.5,'60'])assert.equal((await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,config:{prebufferSeconds:n}})})).status,400);
+ await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,config:{prebufferSeconds:60}})});assert.equal((await (await fetch(endpoint)).json()).config.prebufferSeconds,60);
  assert.equal((await pool.query('SELECT monitored FROM models WHERE id=$1',[model.id])).rows[0].monitored,true);
  buffer=await startBuffer(path.join(root,'cache'),{url:base+'/media/fixture.m3u8',method:'GET',headers:{}});
  await Promise.race([buffer.done,new Promise((_,reject)=>{const t=setTimeout(()=>reject(new Error('buffer timeout')),30000);t.unref();})]);await readBuffer(buffer);
@@ -27,7 +37,7 @@ try{
  const now=buffer.anchor+buffer.segments.at(-1).end*1000-30000;
  const observations=Array.from({length:73},(_,i)=>({observed_at:new Date(now-360000+i*5000),viewers:i<60?100:200,online:true,room_status:'public'}));
  const decision=detectHighlight({now,since:now-360000,observations});assert.ok(decision.reasons.length);
- job={modelId:model.id,buffer,storage:root};await captureHighlight(job,decision.reasons,now);
+ job={modelId:model.id,buffer,storage:root,settings:{prebufferSeconds:120}};await captureHighlight(job,decision.reasons,now);
  const id=job.highlight.id,initialEnd=job.highlight.end;
  await captureHighlight(job,[{kind:'tips',text:'30 秒内 800 TK',value:800}],now+10000);
  assert.equal(job.highlight.id,id);assert.equal(job.highlight.end,initialEnd+10000);assert.equal(job.highlight.reasons.length,2);
@@ -35,11 +45,12 @@ try{
  // Completed fixture has a shorter tail; archive as interrupted, retaining actual duration.
  await pruneBuffer(buffer,job.highlight.start);
  await archiveHighlight(job,'测试媒体结束，保留实际片段');
- const h=(await pool.query('SELECT * FROM highlights WHERE id=$1',[id])).rows[0];assert.equal(h.status,'已中断',h.error);assert.ok(h.duration_seconds>=140);assert.ok(h.bytes>1000);
+ const h=(await pool.query('SELECT * FROM highlights WHERE id=$1',[id])).rows[0];assert.equal(h.status,'已中断',h.error);assert.ok(h.duration_seconds>=140);assert.ok(h.bytes>1000);const modelName=(await pool.query('SELECT name FROM models WHERE id=$1',[model.id])).rows[0].name;assert.ok(h.filename.startsWith(modelName+'-'));assert.ok(h.filename.includes('-highlight-'));
  const listing=await (await fetch(endpoint)).json();assert.equal(listing.items[0].id,id);assert.equal(listing.items[0].reasons.length,2);
  const media=await fetch(base+`/api/highlights/${id}/file`,{headers:{Range:'bytes=0-1023'}});assert.equal(media.status,206);assert.equal((await media.arrayBuffer()).byteLength,1024);
  await fetch(endpoint,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:false})});assert.equal((await (await fetch(endpoint)).json()).enabled,false);
  await fs.copyFile(safeFile(h),path.resolve('artifacts/highlight-fixture.mp4'));
+ const zeroJob={modelId:model.id,buffer,storage:root,settings:{prebufferSeconds:0}};await captureHighlight(zeroJob,decision.reasons,now);assert.equal(zeroJob.highlight.start,now);const zeroId=zeroJob.highlight.id;await archiveHighlight(zeroJob);const zero=(await pool.query('SELECT * FROM highlights WHERE id=$1',[zeroId])).rows[0];assert.equal(zero.status,'已完成',zero.error);assert.ok(zero.duration_seconds>=29&&zero.duration_seconds<=41,'zero mode excludes old prebuffer');
  job.cooldown=now+1000;await captureHighlight(job,decision.reasons,now);assert.equal(job.highlight,null);job.cooldown=0;
  // Reuse the synthetic media as an independent archive fixture, after testing exclusion.
  await captureHighlight(job,decision.reasons,now);assert.equal(job.highlight.start,job.recordedThrough);job.highlight.start=now-120000;const completeId=job.highlight.id;await archiveHighlight(job);assert.equal((await pool.query('SELECT status FROM highlights WHERE id=$1',[completeId])).rows[0].status,'已完成');
@@ -48,7 +59,7 @@ try{
   await db.query('BEGIN');const subject={...model,name:'GoalFixture',config:{goalNotify:true}};const g=spent=>({description:'测试目标',target:1000,spent});
   await saveGoalObservation(db,subject,g(100),now-20000);near=await saveGoalObservation(db,subject,g(990),now-10000);await saveGoalObservation(db,subject,g(990),now-5000);
   complete=await saveGoalObservation(db,subject,g(1000),now);await saveGoalObservation(db,subject,g(1000),now+1000);
-  assert.equal((await db.query('SELECT count(*)::int AS n FROM goal_signals WHERE model_id=$1',[model.id])).rows[0].n,2);assert.equal((await db.query('SELECT count(*)::int AS n FROM events WHERE model_id=$1',[model.id])).rows[0].n,2);await db.query('COMMIT');
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM goal_signals WHERE model_id=$1',[model.id])).rows[0].n,2);assert.equal((await db.query("SELECT count(*)::int AS n FROM events WHERE model_id=$1 AND kind IN ('goalNear','goalComplete')",[model.id])).rows[0].n,2);await db.query('COMMIT');
  }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
  job.recordedThrough=0;await captureHighlight(job,near.signals,now-10000);const goalId=job.highlight.id;await captureHighlight(job,complete.signals,now);assert.equal(job.highlight.id,goalId);assert.equal(job.highlight.end,now+900000);await captureHighlight(job,decision.reasons,now+1000);assert.equal(job.highlight.end,now+900000);await archiveHighlight(job,'合成媒体结束');
  await fs.writeFile(path.join(root,'live.m3u8'),(await fs.readFile(path.join(root,'fixture.m3u8'),'utf8')).replace('#EXT-X-ENDLIST',''));

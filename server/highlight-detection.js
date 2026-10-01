@@ -1,10 +1,10 @@
-export const highlightDefaults={viewerRecord:true,tipRecord:true,viewerRatio:0.3,viewerIncrease:50,tipMinimum:100,tipRatio:3,singleTip:500,goalRecord:true,goalNotify:false,goalNearPercent:1};
+export const highlightDefaults={viewerRecord:true,tipRecord:true,plainTipRecord:false,menuTipRecord:false,plainTipMinimum:500,menuTipMinimum:500,viewerRatio:0.3,viewerIncrease:50,tipMinimum:100,tipRatio:3,singleTip:500,goalRecord:true,goalNotify:false,goalNearPercent:1,prebufferSeconds:0};
 export function validateHighlightSettings(value={}){
  const out={...highlightDefaults};
- for(const [key,min,max] of [['viewerRatio',0.1,10],['viewerIncrease',1,1000000],['tipMinimum',1,10000000],['tipRatio',1,100],['singleTip',1,10000000]]){
+ for(const [key,min,max] of [['prebufferSeconds',0,300],['viewerRatio',0.1,10],['viewerIncrease',1,1000000],['tipMinimum',1,10000000],['tipRatio',1,100],['singleTip',1,10000000],['plainTipMinimum',1,10000000],['menuTipMinimum',1,10000000]]){
   const n=value[key]??out[key];if(typeof n!=='number'||!Number.isFinite(n)||n<min||n>max||(!['viewerRatio','tipRatio'].includes(key)&&!Number.isInteger(n)))throw new Error('高光阈值无效');out[key]=n;
  }
- for(const key of ['viewerRecord','tipRecord','goalRecord','goalNotify']){const v=value[key]??out[key];if(typeof v!=='boolean')throw new Error('高光选项必须是布尔值');out[key]=v;}
+ for(const key of ['viewerRecord','tipRecord','goalRecord','goalNotify','plainTipRecord','menuTipRecord']){const v=value[key]??out[key];if(typeof v!=='boolean')throw new Error('高光选项必须是布尔值');out[key]=v;}
  const p=value.goalNearPercent??1;if(typeof p!=='number'||!Number.isFinite(p)||p<0.1||p>20)throw new Error('目标剩余比例须为 0.1–20%');out.goalNearPercent=p;
  return out;
 }
@@ -35,13 +35,17 @@ export function detectHighlight({now,since,observations,tips=[],coverage=[],sett
   if(current>=threshold(expected)&&sustained.length>=3&&sustained.at(-1).t-sustained[0].t>=20000&&sustained.every(o=>o.viewers>=threshold(trend.at(o.t))))reasons.push({kind:'viewers',text:`人数加速上涨 · 预计 ${Math.round(expected)} → 实际 ${Math.round(current)}`,baseline:expected,value:current,priorRate:trend.slope});
  }
  const covered=coverage.some(c=>new Date(c.started_at).getTime()<=now-330000&&new Date(c.ended_at||c.last_seen).getTime()>=now-10000&&!c.ended_at);
- if(settings.tipRecord!==false&&covered){
+ if(covered){
   // Historical replays received on reconnect must not manufacture a live spike.
   const events=tips.filter(t=>t.source==='live'&&Number.isSafeInteger(Number(t.amount))&&Number(t.amount)>0&&Math.abs(new Date(t.received_at)-new Date(t.message_at))<30000);
   const latest=events.filter(t=>new Date(t.message_at).getTime()>now-30000&&new Date(t.message_at).getTime()<=now);
   const total=latest.reduce((n,t)=>n+Number(t.amount),0),prior=events.filter(t=>new Date(t.message_at).getTime()>now-330000&&new Date(t.message_at).getTime()<=now-30000).reduce((n,t)=>n+Number(t.amount),0)/10;
-  if(total>=settings.tipMinimum&&total>=prior*settings.tipRatio)reasons.push({kind:'tips',text:`30 秒内 ${total} TK`,value:total,baseline:prior});
-  const largest=Math.max(0,...latest.map(t=>Number(t.amount)));if(largest>=settings.singleTip)reasons.push({kind:'singleTip',text:`单笔 ${largest} TK`,value:largest});
+  if(settings.tipRecord!==false&&total>=settings.tipMinimum&&total>=prior*settings.tipRatio)reasons.push({kind:'tips',text:`30 秒内 ${total} TK`,value:total,baseline:prior});
+  const largest=Math.max(0,...latest.map(t=>Number(t.amount)));if(settings.tipRecord!==false&&largest>=settings.singleTip)reasons.push({kind:'singleTip',text:`单笔 ${largest} TK`,value:largest});
+  for(const [enabled,minimum,isMenu,kind,label] of [[settings.plainTipRecord,settings.plainTipMinimum,false,'plainTip','普通小费'],[settings.menuTipRecord,settings.menuTipMinimum,true,'menuTip','菜单打赏']]){
+   const value=Math.max(0,...latest.filter(t=>t.tip_menu===isMenu&&new Date(t.message_at).getTime()>=since).map(t=>Number(t.amount)));
+   if(enabled&&value>=minimum)reasons.push({kind,text:`${label} · 单笔 ${value} TK`,value,threshold:minimum});
+  }
  }
  return {ready:true,reasons};
 }
