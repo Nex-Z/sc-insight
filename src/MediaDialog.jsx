@@ -16,9 +16,10 @@ export function Modal({title,onClose,busy=false,alert=false,children,className='
 }
 
 export function MediaVideo({videoRef,...props}){
- const own=useRef(),ref=videoRef||own,[error,setError]=useState('');
+ const own=useRef(),ref=videoRef||own,[error,setError]=useState(''),[loading,setLoading]=useState(true);
+ useEffect(()=>{setLoading(true);setError('');},[props.src]);
  async function fullscreen(){try{const v=ref.current;if(v.requestFullscreen)await v.requestFullscreen();else if(v.webkitEnterFullscreen)v.webkitEnterFullscreen();else throw Error();}catch{setError('当前浏览器无法进入全屏，可使用视频自带的全屏按钮。');}}
- return <div className="media-video"><video ref={ref} controls playsInline preload="metadata" {...props}/><button className="media-fullscreen" onClick={fullscreen}>全屏播放</button>{error&&<p role="alert">{error}</p>}</div>;
+ return <div className="media-video"><video ref={ref} controls playsInline preload="metadata" {...props} onLoadStart={e=>{setLoading(true);props.onLoadStart?.(e);}} onLoadedMetadata={e=>{setLoading(false);props.onLoadedMetadata?.(e);}} onCanPlay={e=>{setLoading(false);props.onCanPlay?.(e);}} onWaiting={e=>{setLoading(true);props.onWaiting?.(e);}} onPlaying={e=>{setLoading(false);props.onPlaying?.(e);}} onError={e=>{setLoading(false);props.onError?.(e);}}/>{loading&&<span className="media-loading" role="status">正在准备播放…</span>}<button className="media-fullscreen" onClick={fullscreen}>全屏播放</button>{error&&<p role="alert">{error}</p>}</div>;
 }
 
 export function DeleteMediaDialog({item,onClose,onDeleted}){

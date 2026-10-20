@@ -1,3 +1,4 @@
+import {playbackFile} from './playback-file.js';
 import express from 'express';
 import fs from 'node:fs/promises';
 import {pool} from './db.js';
@@ -74,6 +75,7 @@ recordingRoutes.get('/recordings/:id/file',async(req,res,next)=>{
  let file;try{file=safeFile(record);await fs.access(file);}catch{return res.status(404).json({error:'录像文件不存在或存储目录不可访问'});}
  res.set('Cache-Control','private, no-store');
  const done=e=>{if(e&&!res.headersSent)res.status(e.statusCode===404?404:500).json({error:'读取录像文件失败'});};
+ if(req.query.download!=='1'){try{file=await playbackFile(file);}catch(e){console.warn('播放索引准备失败，使用原文件:',e.message);}}
  if(req.query.download==='1')res.download(file,record.filename,done);else res.sendFile(file,{headers:{'Content-Type':'video/mp4'}},done);
 });
 recordingRoutes.delete('/recordings/:id',async(req,res)=>{

@@ -1,3 +1,6 @@
+import {playbackFile} from './playback-file.js';
+import path from 'node:path';
+import {recoverArchive,requestMediaStop} from './media-archive.js';
 import {recordingInterruption} from '../src/room-state.js';
 import fs from 'node:fs/promises';
 import {spawn} from 'node:child_process';
@@ -6,7 +9,7 @@ import {captureInputArgs} from './capture-input.js';
 import {recordingConcurrency,recordingCodecArgs,recordingDurationArgs} from './recording-options.js';
 import {resolveModelInput} from './model-source.js';
 import {inspectPublicRoom} from './public-source.js';
-import {reconcileLiveTarget} from './live-watch.js';
+import {reconcileLiveTarget,checkRecordingRoom} from './live-watch.js';
 import {recordingFilename,recordingDirectory} from './recording-name.js';
 const concurrency=recordingConcurrency();
 import {pool} from './db.js';
@@ -58,30 +61,33 @@ export async function stopRecording(id,{disableAuto=true,reason='用户停止'}=
  await db.query('COMMIT');
  }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
  if(row.status==='排队中')releaseInput(Number(id));
- const job=jobs.get(Number(id));if(job){job.stopRequested=true;job.stopReason=reason;job.child.stdin.write('q\n',()=>{});job.killTimer=setTimeout(()=>job.child.kill(),10000);}
+ const job=jobs.get(Number(id));if(job)requestMediaStop(job,{reason});
  return {ok:true,autoRecord:!disableAuto};
 }
 async function finish(record,job,code){
- clearInterval(job.monitor);clearTimeout(job.killTimer);let finalStatus='失败',error=job.failure||null;
- if(record.until_offline&&!job.stopRequested&&!error)error='直播输入提前结束，已归档并等待自动重连';
+ clearInterval(job.monitor);clearInterval(job.roomMonitor);clearTimeout(job.killTimer);let finalStatus='失败',error=null;
  try{
  await job.pending;
+ error=job.failure||null;
+ if(record.until_offline&&!job.stopRequested&&!error)error='直播输入提前结束，已归档并等待自动重连';
  await pool.query("UPDATE recordings SET status='归档中' WHERE id=$1",[record.id]);
- const file=safeFile(record);const metadata=await probe(file);const stat=await fs.stat(file);
- const seconds=Number(metadata.format?.duration||job.seconds||0);
- if(seconds<=0||stat.size<100)throw new Error('未收到可归档的视频数据');
- finalStatus=code===0&&!error?'已完成':job.stopRequested&&!error?'已完成':'已中断';
+ const media=await recoverArchive(safeFile(record)),file=media.file,seconds=media.duration;
+ if(media.recovered)error=error||'录制收尾异常，已恢复可播放片段；原始文件保留';
+ // Prepare the playback index during archiving, before exposing completion.
+  try{await playbackFile(file);}catch(e){console.warn('录像播放索引准备失败:',redact(e.message));}
+  finalStatus=code===0&&!error?'已完成':job.stopRequested&&!error?'已完成':'已中断';
  if(finalStatus==='已中断'&&!error)error='直播流意外结束，已保留可播放片段';
- await pool.query('UPDATE recordings SET status=$2,bytes=$3,duration_seconds=$4,duration=$5,size=$6,finished_at=now(),source_url=NULL,worker_pid=NULL,error=$7 WHERE id=$1',[record.id,finalStatus,stat.size,seconds,humanDuration(seconds),humanSize(stat.size),error]);
- }catch(e){error=error||redact(e.message)||'录制失败';await pool.query("UPDATE recordings SET status='失败',error=$2,finished_at=now(),source_url=NULL,worker_pid=NULL WHERE id=$1",[record.id,error]);}
+ await pool.query('UPDATE recordings SET status=$2,bytes=$3,duration_seconds=$4,duration=$5,size=$6,finished_at=now(),source_url=NULL,worker_pid=NULL,error=$7,filename=$8 WHERE id=$1',[record.id,finalStatus,media.bytes,seconds,humanDuration(seconds),humanSize(media.bytes),error,path.basename(file)]);
+ }catch(e){finalStatus='失败';error=[error,redact(e.message),'已有文件保留，等待恢复'].filter(Boolean).join(' · ');const stat=await fs.stat(safeFile(record)).catch(()=>null);await pool.query("UPDATE recordings SET status='失败',error=$2,finished_at=now(),source_url=NULL,worker_pid=NULL,bytes=$3,size=$4 WHERE id=$1",[record.id,error,stat?.size||0,humanSize(stat?.size||0)]);}
  await pool.query('INSERT INTO events(model_id,title,detail) VALUES($1,$2,$3)',[record.model_id,`录像${finalStatus}`,`${record.filename}${error?' · '+error:job.stopReason?' · '+job.stopReason:''}`]);
  releaseInput(record.id);jobs.delete(record.id);job.resolve();if(!stopping)void autoRecord().then(()=>pump()).catch(e=>console.error('自动续录:',redact(e.message)));
 }
 async function launch(record){
- let captured=browserInputs.get(record.id);if(record.source_url==='browser-session'&&!captured)throw new Error('浏览器会话已结束，请重新检测并录制');
+ let captured=browserInputs.get(record.id),publicModel;if(record.source_url==='browser-session'&&!captured)throw new Error('浏览器会话已结束，请重新检测并录制');
  if(record.source_url==='public-model'){
   const {rows:[model]}=await pool.query('SELECT * FROM models WHERE id=$1',[record.model_id]);
   if(!model)throw new Error('主播不存在');
+  publicModel=model;
   captured=await resolveModelInput(model);
   browserInputs.set(record.id,captured);
   const {rows:[current]}=await pool.query('SELECT status FROM recordings WHERE id=$1',[record.id]);
@@ -102,20 +108,24 @@ async function launch(record){
  child.stdout.on('data',chunk=>{buffer+=chunk;const lines=buffer.split('\n');buffer=lines.pop();for(const line of lines){const [key,value]=line.trim().split('=');if(key==='out_time_us'&&Number(value)/1000000>job.seconds){job.seconds=Number(value)/1000000;job.lastProgress=Date.now();}}});
  child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-8192);});
  child.on('error',e=>{job.failure=e.code==='ENOENT'?'FFmpeg 不可用':redact(e.message);});
- child.on('close',code=>{if(code!==0&&!job.stopRequested&&!job.failure)job.failure=(captured?(record.source_url==='public-model'?'HTTP 媒体录制失败：直播地址可能已过期或不可访问':'浏览器媒体录制失败：流可能已过期、不可访问或受 DRM 保护'):redact(stderr))||`录制进程退出 ${code}`;if(code!==0&&!job.stopRequested&&stderr)job.failure=(job.failure||'FFmpeg 退出')+' · '+redact(stderr);void finish(record,job,code).catch(e=>{console.error('录像归档失败:',redact(e.message));releaseInput(record.id);jobs.delete(record.id);job.resolve();});});
+ child.on('close',code=>{job.closed=true;if(code!==0&&!job.stopRequested&&!job.failure)job.failure=(captured?(record.source_url==='public-model'?'HTTP 媒体录制失败：直播地址可能已过期或不可访问':'浏览器媒体录制失败：流可能已过期、不可访问或受 DRM 保护'):redact(stderr))||`录制进程退出 ${code}`;if(code!==0&&!job.stopRequested&&stderr)job.failure=(job.failure||'FFmpeg 退出')+' · '+redact(stderr);void finish(record,job,code).catch(e=>{console.error('录像归档失败:',redact(e.message));releaseInput(record.id);jobs.delete(record.id);job.resolve();});});
  await pool.query('UPDATE recordings SET worker_pid=$2 WHERE id=$1',[record.id,child.pid||null]);
+ if(job.closed)return;
+ // Manual and automatic public-room recordings share the same state guard.
+ if(publicModel)job.roomMonitor=setInterval(()=>void checkRecordingRoom(job,publicModel),15000);
  job.monitor=setInterval(()=>{
  job.pending=job.pending.then(async()=>{
-  if(Date.now()-job.lastProgress>(record.source_url==='public-model'?90000:45000)){job.failure='持续未收到有效视频数据，已停止';child.kill();return;}
+  if(job.stopRequested||job.closed)return;
+  if(Date.now()-job.lastProgress>(record.source_url==='public-model'?90000:45000)){requestMediaStop(job,{failure:'持续未收到有效视频数据，已停止并保留片段'});return;}
   const stat=await fs.stat(file).catch(()=>null);const disk=await fs.statfs(record.directory);
-  if(disk.bavail*disk.bsize<256*1024*1024){job.failure='磁盘可用空间不足 256 MB，已停止并保留片段';job.stopRequested=true;child.stdin.write('q\n',()=>{});job.killTimer=setTimeout(()=>child.kill(),10000);}
+  if(disk.bavail*disk.bsize<256*1024*1024)requestMediaStop(job,{failure:'磁盘可用空间不足 256 MB，已停止并保留片段'});
   await pool.query("UPDATE recordings SET status=$2,bytes=$3,duration_seconds=$4,duration=$5,size=$6 WHERE id=$1 AND status IN ('连接中','录制中')",[record.id,job.seconds>0?'录制中':'连接中',stat?.size||0,job.seconds,humanDuration(job.seconds),humanSize(stat?.size||0)]);
- }).catch(e=>{job.failure='更新录制进度失败';child.kill();console.error(redact(e.message));});
+ }).catch(e=>{requestMediaStop(job,{failure:'更新录制进度失败'});console.error(redact(e.message));});
  },1500);
 }
 async function pump(){
  if(polling||stopping||!engine.ready)return;polling=true;
- try{while(jobs.size<concurrency){const {rows:[record]}=await pool.query("UPDATE recordings SET status='连接中',started_at=now() WHERE id=(SELECT id FROM recordings WHERE status='排队中' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");if(!record)break;try{await launch(record);}catch(e){releaseInput(record.id);await pool.query("UPDATE recordings SET status='失败',error=$2,finished_at=now(),source_url=NULL WHERE id=$1 AND status='连接中'",[record.id,redact(e.message)]);}}}catch(e){console.error('录制队列:',redact(e.message));}finally{polling=false;}
+ try{while(jobs.size<concurrency){const {rows:[record]}=await pool.query("UPDATE recordings SET status='连接中',started_at=now() WHERE id=(SELECT id FROM recordings WHERE status='排队中' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *");if(!record)break;try{await launch(record);}catch(e){const job=jobs.get(record.id);if(job){requestMediaStop(job,{failure:redact(e.message)});continue;}releaseInput(record.id);const stat=await fs.stat(safeFile(record)).catch(()=>null);await pool.query("UPDATE recordings SET status='失败',error=$2,finished_at=now(),source_url=NULL,preflight_failed=$3 WHERE id=$1 AND status='连接中'",[record.id,redact(e.message),!stat]);}}}catch(e){console.error('录制队列:',redact(e.message));}finally{polling=false;}
 }
 let autoRunning;
 export function autoRecord(){
@@ -151,8 +161,9 @@ export async function startWorker(){
  catch(e){engine.error=redact(e.message);return;}
  // Interrupted tasks remain recoverable as fragmented MP4; never invent completion.
  const {rows}=await pool.query("UPDATE recordings SET status='已中断',finished_at=now(),error='服务重启，任务已中断；保留已有文件',source_url=NULL,worker_pid=NULL WHERE status IN ('连接中','录制中','归档中') RETURNING *");
- for(const record of rows){try{const f=safeFile(record);const info=await probe(f);const stat=await fs.stat(f);const seconds=Number(info.format?.duration||0);await pool.query('UPDATE recordings SET bytes=$2,duration_seconds=$3,duration=$4,size=$5 WHERE id=$1',[record.id,stat.size,seconds,humanDuration(seconds),humanSize(stat.size)]);}catch{}}
+ const failed=await pool.query("SELECT * FROM recordings WHERE status='失败' AND NOT preflight_failed");
+ for(const record of [...rows,...failed.rows]){try{const media=await recoverArchive(safeFile(record));await pool.query("UPDATE recordings SET status='已中断',bytes=$2,duration_seconds=$3,duration=$4,size=$5,filename=$6,error=$7 WHERE id=$1",[record.id,media.bytes,media.duration,humanDuration(media.duration),humanSize(media.bytes),path.basename(media.file),'服务启动时已恢复可播放片段；'+(record.error||'原录制中断')]);}catch(e){console.warn('录像恢复未完成，保留原文件:',record.id,redact(e.message));}}
  await pool.query("UPDATE recordings SET status='失败',finished_at=now(),error='服务重启，浏览器会话已失效，请重新检测',source_url=NULL WHERE status='排队中' AND source_url='browser-session'");
  timer=setInterval(()=>void pump(),3000);void pump();
 }
-export async function shutdownWorker(){stopping=true;clearInterval(timer);for(const job of jobs.values()){job.stopRequested=true;job.child.stdin.write('q\n',()=>{});job.killTimer=setTimeout(()=>job.child.kill(),8000);}await Promise.all([...jobs.values()].map(j=>j.done));if(lock){await lock.query('SELECT pg_advisory_unlock(73190512)');lock.release();lock=null;}}
+export async function shutdownWorker(){stopping=true;clearInterval(timer);for(const job of jobs.values())requestMediaStop(job,{reason:'服务停止',timeout:8000});await Promise.all([...jobs.values()].map(j=>j.done));if(lock){await lock.query('SELECT pg_advisory_unlock(73190512)');lock.release();lock=null;}}

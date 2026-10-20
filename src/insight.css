@@ -40,3 +40,5 @@
 .highlight-menu-items span{overflow-wrap:anywhere;min-width:0}
 .highlight-menu-items button{flex-shrink:0}
 @media(max-width:700px){.highlight-tip-rules{grid-template-columns:1fr}.highlight-single-tips .md-section-title{flex-wrap:wrap}}
+
+.media-loading{position:absolute;top:12px;left:12px;padding:6px 10px;border-radius:6px;background:rgba(20,22,26,.85);color:#e5e7eb;font-size:12px;pointer-events:none}

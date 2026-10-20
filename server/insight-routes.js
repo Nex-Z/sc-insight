@@ -7,8 +7,8 @@ export const insightRoutes=express.Router();
 const validId=v=>/^\d{1,19}$/.test(String(v))&&BigInt(v)>0n&&BigInt(v)<=9223372036854775807n;
 const validModel=v=>validId(v)&&BigInt(v)<=2147483647n;
 const validDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v+'T00:00:00Z'))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v;
-const mediaSql=`SELECT 'recording' AS kind,id,model_id,filename,status,duration_seconds,bytes,started_at,finished_at,created_at,'[]'::jsonb AS reasons FROM recordings
- UNION ALL SELECT 'highlight',id,model_id,filename,status,duration_seconds,bytes,started_at,finished_at,triggered_at,reasons FROM highlights`;
+const mediaSql=`SELECT 'recording' AS kind,id,model_id,filename,status,duration_seconds,bytes,started_at,finished_at,created_at,'[]'::jsonb AS reasons,preflight_failed FROM recordings
+ UNION ALL SELECT 'highlight',id,model_id,filename,status,duration_seconds,bytes,started_at,finished_at,triggered_at,reasons,false FROM highlights`;
 const metadataSql=`coalesce(md.title,'') AS title,coalesce(md.tags,'[]'::jsonb) AS tags,coalesce(md.favorite,false) AS favorite,coalesce(md.watched,false) AS watched,coalesce(md.note,'') AS note,coalesce(md.marks,'[]'::jsonb) AS marks`;
 insightRoutes.get('/content',async(req,res)=>{
  const q=String(req.query.q||'').slice(0,200),model=req.query.model||null,kind=req.query.kind||'',offset=Number(req.query.offset||0),date=req.query.date||null,session=req.query.session||null;

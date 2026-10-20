@@ -10,6 +10,7 @@ import {pool} from './db.js';
 import {getStorage} from './storage.js';
 import {resolveModelInput} from './model-source.js';
 import {redact,safeFile,probe} from './media.js';
+import {recoverArchive} from './media-archive.js';
 import {workerState} from './recorder.js';
 import {highlightSchema} from './highlight-schema.js';
 import {detectHighlight,validateHighlightSettings} from './highlight-detection.js';
@@ -25,15 +26,35 @@ export function highlightState(id){return states.get(Number(id))||{status:'等�
 export async function archiveHighlight(job,error=null){
  const h=job.highlight;if(!h)return;
  job.retainBuffer=true;
- await pool.query("UPDATE highlights SET status='归档中' WHERE id=$1",[h.id]);
+ await pool.query("UPDATE highlights SET status='归档中',recovery_state=$2 WHERE id=$1",[h.id,JSON.stringify({start:h.start,end:h.end,anchor:job.buffer.anchor,segments:job.buffer.segments})]);
  try{
   const media=await exportBuffer(job.buffer,{start:h.start,end:h.end,output:safeFile(h)});
-  const interrupted=error||h.interruption||null;
-  await pool.query('UPDATE highlights SET status=$2,started_at=$3,finished_at=$4,duration_seconds=$5,bytes=$6,error=$7 WHERE id=$1',[h.id,interrupted?'已中断':'已完成',new Date(media.start),new Date(media.end),media.duration,media.bytes,interrupted]);
+  const interrupted=error||h.interruption||(media.recovered?'媒体尾片异常，已恢复可播放片段':null);
+  await pool.query('UPDATE highlights SET status=$2,started_at=$3,finished_at=$4,duration_seconds=$5,bytes=$6,error=$7,filename=$8 WHERE id=$1',[h.id,interrupted?'已中断':'已完成',new Date(media.start),new Date(media.end),media.duration,media.bytes,interrupted,h.filename]);
   job.recordedThrough=media.end;
+  if(media.recovered)job.keepRecoveredCache=true;
   job.retainBuffer=false;
- }catch(e){await pool.query("UPDATE highlights SET status='失败',finished_at=now(),error=$2 WHERE id=$1",[h.id,redact(e.message)]);}
+ }catch(e){await pool.query("UPDATE highlights SET status='失败',finished_at=now(),error=$2 WHERE id=$1",[h.id,redact(e.message)+' · 已保留缓存片段，等待恢复']);}
  job.highlight=null;
+}
+export async function recoverHighlight(h){
+ try{
+  const media=await recoverArchive(safeFile(h));
+  await pool.query("UPDATE highlights SET status='已中断',duration_seconds=$2,bytes=$3,filename=$4,error=$5 WHERE id=$1",[h.id,media.duration,media.bytes,path.basename(media.file),'已恢复可播放片段；'+(h.error||'原录制中断')]);
+  return;
+ }catch{/* If the final file is missing, retry from retained segments. */}
+ if(!h.cache_directory)throw new Error('没有可恢复的高光缓存');
+ const state=h.recovery_state;
+ const buffer={directory:h.cache_directory,closed:true,segments:state?.segments||[],anchor:state?.anchor??null};
+ await readBuffer(buffer);
+ if(!buffer.segments.length)throw new Error('没有可恢复的高光片段');
+ const start=state?.start??buffer.anchor+buffer.segments[0].start*1000;
+ const end=state?.end??buffer.anchor+buffer.segments.at(-1).end*1000;
+ // A failed MP4 is left untouched. Export to a new name for recovery.
+ const filename=path.basename(h.filename,'.mp4')+'-recovered-'+randomUUID()+'.mp4';
+ const job={buffer,highlight:{...h,filename,start,end}};
+ await archiveHighlight(job,'已从保留的缓存恢复中断高光');
+ if(job.retainBuffer)throw new Error('高光恢复未完成，继续保留缓存');
 }
 async function ensureMedia(job){
  if(job.buffer)return true;
@@ -50,8 +71,8 @@ async function ensureMedia(job){
 async function releaseMedia(job){
  if(!job.buffer)return;
  await stopBuffer(job.buffer);job.input.close();
- if(!job.retainBuffer)await cleanBuffer(job.buffer);
- job.buffer=null;job.input=null;
+ if(!job.retainBuffer&&!job.keepRecoveredCache)await cleanBuffer(job.buffer);
+ job.buffer=null;job.input=null;job.keepRecoveredCache=false;
 }
 async function stopJob(id,reason,ending){
  const job=jobs.get(id);if(!job)return;
@@ -100,6 +121,7 @@ export async function sample(job,config){
  // A ten-second segment must close before exporting its tail.
  if(job.highlight&&!Object.keys(job.highlight.pendingGoals||{}).length&&now>=job.highlight.end+15000){await archiveHighlight(job);job.cooldown=now+30000;}
  if(job.retainBuffer)throw new Error('高光归档失败，已保留缓存片段供恢复');
+ if(job.keepRecoveredCache&&!job.highlight)await releaseMedia(job);
  if(mediaJobs().size>getHighlightLimit()&&!job.highlight)return;
  if(decision.reasons.length&&(!job.highlight||now<job.highlight.end+15000))await captureHighlight(job,decision.reasons,now);
  if(!job.highlight&&settings.prebufferSeconds===0)await releaseMedia(job);
@@ -146,7 +168,8 @@ export async function startHighlights(){
  await loadHighlightCapacity();
  lock=await pool.connect();const {rows:[r]}=await lock.query('SELECT pg_try_advisory_lock(73190513) AS locked');if(!r.locked){lock.release();lock=null;return;}
  const interrupted=await pool.query("UPDATE highlights SET status='已中断',error='服务重启，保留已有文件和临时片段',finished_at=now() WHERE status IN ('录制中','归档中') RETURNING *");
- for(const h of interrupted.rows){try{const file=safeFile(h),info=await probe(file),stat=await fs.stat(file);await pool.query('UPDATE highlights SET duration_seconds=$2,bytes=$3 WHERE id=$1',[h.id,Number(info.format.duration)||0,stat.size]);}catch{}}
+ const failed=await pool.query("SELECT * FROM highlights WHERE status='失败' AND cache_directory IS NOT NULL");
+ for(const h of [...interrupted.rows,...failed.rows]){try{await recoverHighlight(h);}catch(e){console.warn('高光恢复未完成，保留文件与缓存:',h.id,redact(e.message));}}
  stopped=false;timer=setInterval(()=>void syncHighlights(),5000);void syncHighlights();
 }
 export async function stopHighlights(){

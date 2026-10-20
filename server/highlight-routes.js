@@ -1,3 +1,4 @@
+import {playbackFile} from './playback-file.js';
 import {deleteContentRoute} from './content-delete.js';
 import {saveHighlightCapacity} from './highlight-capacity.js';
 import express from 'express';
@@ -37,6 +38,7 @@ highlightRoutes.get('/highlights/:id/file',async(req,res)=>{
  if(!['已完成','已中断'].includes(h.status))return res.status(409).json({error:'高光尚未归档'});
  let file;try{file=safeFile(h);await fs.access(file);}catch{return res.status(404).json({error:'片段文件不可用，可能在录制中断前尚未生成'});}
  res.set('Cache-Control','private, no-store');const done=e=>{if(e&&!res.headersSent)res.status(404).json({error:'读取高光失败'});};
+ if(req.query.download!=='1'){try{file=await playbackFile(file);}catch(e){console.warn('播放索引准备失败，使用原文件:',e.message);}}
  if(req.query.download==='1')res.download(file,highlightDownloadFilename(h,h.model_name),done);else res.sendFile(file,{headers:{'Content-Type':'video/mp4'}},done);
 });
 

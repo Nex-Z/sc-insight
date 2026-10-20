@@ -32,13 +32,13 @@ export default function ModelDirectory({mode,models,Card,cardProps,onResults,ini
    <label>列表分组<select aria-label="列表分组" value={group} onChange={e=>setGroup(e.target.value)}><option value="all">全部</option>{discover&&<option value="favorite">我的关注</option>}<option value="monitored">监控名单</option></select></label>
    <label>最少观看人数<input aria-label="最少观看人数" type="number" min="0" step="1" value={min} onChange={e=>setMin(e.target.value)} placeholder="不限"/></label>
    <label>最多观看人数<input aria-label="最多观看人数" type="number" min="0" step="1" value={max} onChange={e=>setMax(e.target.value)} placeholder="不限"/></label>
-   <label>排序<select aria-label="排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="viewers">观看人数</option><option value="growth">采样变化</option><option value="name">用户名</option></select></label>
+   <label>排序<select aria-label="排序" value={sort} onChange={e=>setSort(e.target.value)}><option value="viewers">观看人数</option><option value="growth">采样变化</option>{!discover&&<><option value="content">内容数量 · 从多到少</option><option value="contentAsc">内容数量 · 从少到多</option></>}<option value="name">用户名</option></select></label>
    <button type="button" onClick={reset}>重置</button>
    {discover?<button className="primary" type="submit" disabled={busy||!query.trim()}>{busy?'搜索中…':'搜索官网'}</button>:<button type="button" onClick={onDiscover}>去发现主播</button>}
   </form>
   {discover&&<p className="footnote">条件筛选作用于本次官网返回的结果，点击搜索后生效；未提供地区或采样变化的资料不会补造数值。</p>}
   <p role="status" className="footnote">{error|| (discover?busy?'正在搜索官网…':result?`官网用户名搜索 · 女主播分类 · 返回 ${result.models.length} / ${result.total} 位 · 筛选后 ${rows.length} 位${result.skipped?` · 已略过 ${result.skipped} 条无法识别的资料`:``}`:'输入用户名并点击搜索；修改条件后再次点击搜索生效。':`我的关注 ${models.filter(m=>m.favorite).length} 位 · 在线 ${models.filter(m=>m.favorite&&m.online&&m.fresh).length} 位 · 状态和人数为最近采样，过期显示待更新`)}</p>
-  <div className="model-grid" ref={viewport.grid}>{rows.slice(0,viewport.count).map(m=><Card key={m.id} m={m} {...cardProps}/>)}</div>
+  <div className="model-grid" ref={viewport.grid}>{rows.slice(0,viewport.count).map(m=><Card key={m.id} m={m} showContent={!discover} {...cardProps}/>)}</div>
   {!rows.length&&!busy&&<div className="empty"><strong>{discover?result?'没有符合条件的主播':'搜索官网，发现主播':'暂无符合条件的关注主播'}</strong><span>{discover?'可按完整用户名搜索，在结果中点击关注。':'在发现主播中点击关注后，会出现在这里。'}</span></div>}
   <div ref={viewport.sentinel} className="directory-load-status" role="status">{rows.length>0&&(viewport.count<rows.length?"继续滚动，自动加载更多":"已显示全部 "+rows.length+" 位")}</div>
  </section>;

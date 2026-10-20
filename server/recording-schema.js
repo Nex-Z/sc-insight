@@ -16,6 +16,11 @@ export async function recordingSchema(db) {
  ALTER TABLE recordings ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ;
  ALTER TABLE recordings ADD COLUMN IF NOT EXISTS error TEXT;
  ALTER TABLE recordings ADD COLUMN IF NOT EXISTS worker_pid INTEGER;
+ ALTER TABLE recordings ADD COLUMN IF NOT EXISTS preflight_failed BOOLEAN NOT NULL DEFAULT false;
+ UPDATE recordings SET preflight_failed=true WHERE NOT preflight_failed
+ AND status='失败' AND bytes=0 AND duration_seconds=0 AND worker_pid IS NULL
+ AND (error ~ '^(主清单请求失败|直播清单请求失败|公开直播间请求失败)（HTTP [0-9]+）$'
+ OR error='公开页面缺少主播数据');
  CREATE UNIQUE INDEX IF NOT EXISTS one_active_recording_per_model ON recordings(model_id)
  WHERE status IN ('排队中','连接中','录制中','归档中');`);
 }

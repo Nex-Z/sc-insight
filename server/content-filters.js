@@ -3,6 +3,8 @@ export function contentFilters(query){
  const {from='',to='',duration='',status='',view='',sort='newest'}=query;
  if(from&&!dateOK(from)||to&&!dateOK(to)||from&&to&&from>to||!['','short','medium','long'].includes(duration)||!['','playable','active','failed'].includes(status)||!['','unwatched','favorite','cleanup'].includes(view)||!['newest','oldest','largest','longest'].includes(sort))throw new Error('无效内容筛选');
  const conditions=[],values=[];
+ // Keep request failures inspectable via the explicit failed filter.
+ if(status!=='failed')conditions.push('NOT c.preflight_failed');
  const bind=v=>{values.push(v);return '$'+(8+values.length);};
  if(from)conditions.push(`(coalesce(c.started_at,c.created_at) AT TIME ZONE 'Asia/Hong_Kong')::date>=${bind(from)}::date`);
  if(to)conditions.push(`(coalesce(c.started_at,c.created_at) AT TIME ZONE 'Asia/Hong_Kong')::date<=${bind(to)}::date`);
