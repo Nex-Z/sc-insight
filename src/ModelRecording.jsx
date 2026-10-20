@@ -1,6 +1,6 @@
 import React,{useState} from 'react';
 
-export default function ModelRecording({models=[],initialTarget='',onChange,onCreated}){
+export default function ModelRecording({models=[],initialTarget='',onChange,onCreated,showAutomation=true}){
  const [target,setTarget]=useState(initialTarget),[seconds,setSeconds]=useState(3600);
  const [busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [automatic,setAutomatic]=useState(false);
@@ -15,7 +15,7 @@ export default function ModelRecording({models=[],initialTarget='',onChange,onCr
   }catch(e){setMessage(e.message);}finally{setBusy(false);}
  }
  return <section className="panel model-recording">
-  <h2>按主播后台录制</h2><p className="muted">输入主播名称或已收录的平台 ID，通过 HTTP 解析并交给 FFmpeg。每次开录重新获取地址，默认最高可用画质。</p>
+  <h2>录制设置</h2><p className="muted">输入主播名称或已收录的平台 ID，使用最高可用画质录制。任务在后台进行，关闭弹窗不会停止录制。</p>
   <form onSubmit={e=>{e.preventDefault();void submit(false);}}>
    <label>主播名称 / 平台 ID<input required maxLength={80} list="recording-models" value={target} onChange={e=>setTarget(e.target.value)} placeholder="主播名称或平台 ID"/></label>
    <datalist id="recording-models">{models.map(m=><option key={m.id} value={m.name}>{m.source_id}</option>)}</datalist>
@@ -28,6 +28,6 @@ export default function ModelRecording({models=[],initialTarget='',onChange,onCr
   {message&&<p role="status">{message}</p>}
   {automatic&&continuous&&<p className="muted">不设固定录制时长，下线或手动停止时归档。网络中断恢复后可能产生新文件。</p>}
   {automatic&&<p className="muted">每分钟检查上线／下线；上线后按最高可用画质录制，下线自动归档并继续等待。手动停止任务会关闭自动录制。</p>}
-  {models.filter(m=>m.auto_record).map(m=><p key={m.id}>{m.name} · {m.online?'已上线，自动录制已启用':'等待上线'} <button disabled={busy} onClick={async()=>{setBusy(true);try{const r=await fetch('/api/recording-sources/'+m.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_record:false})});if(!r.ok)throw new Error('关闭失败');await onChange?.();}catch(e){setMessage(e.message);}finally{setBusy(false);}}}>关闭自动录制</button></p>)}
+  {showAutomation&&models.filter(m=>m.auto_record).map(m=><p key={m.id}>{m.name} · {m.online?'已上线，自动录制已启用':'等待上线'} <button disabled={busy} onClick={async()=>{setBusy(true);try{const r=await fetch('/api/recording-sources/'+m.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_record:false})});if(!r.ok)throw new Error('关闭失败');await onChange?.();}catch(e){setMessage(e.message);}finally{setBusy(false);}}}>关闭自动录制</button></p>)}
  </section>;
 }

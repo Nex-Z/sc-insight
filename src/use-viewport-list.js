@@ -1,9 +1,11 @@
 import {useLayoutEffect,useRef,useState} from 'react';
+const retainedWindows=new Map();
 // Render one measured screen at a time; re-observe after growth to fill tall windows.
 export default function useViewportList(total,resetKey){
  const grid=useRef(null),sentinel=useRef(null),batch=useRef(1);
- const [window,setWindow]=useState({key:resetKey,count:1}),[layout,setLayout]=useState(0);
+ const [window,setWindow]=useState(()=>({key:resetKey,count:retainedWindows.get(resetKey)||1})),[layout,setLayout]=useState(0);
  const count=window.key===resetKey?window.count:1;
+ useLayoutEffect(()=>{retainedWindows.set(resetKey,count);if(retainedWindows.size>40)retainedWindows.delete(retainedWindows.keys().next().value);},[resetKey,count]);
  useLayoutEffect(()=>{
   const node=grid.current;if(!node)return;
   const measure=()=>{const card=node.firstElementChild;if(!card)return;const style=getComputedStyle(node),columns=style.gridTemplateColumns.split(' ').length;const height=card.getBoundingClientRect().height+parseFloat(style.rowGap||0);const next=Math.max(1,columns*Math.ceil(innerHeight/Math.max(1,height)));if(next!==batch.current){batch.current=next;setLayout(n=>n+1);}};

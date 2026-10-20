@@ -1,0 +1,117 @@
+/* Shared interaction rules, layered after the existing dark theme. */
+:root{--action-gap:8px;--link:#d7b5c1;--danger:#ff9bad}
+main a,.media-dialog a{color:var(--link);text-underline-offset:4px}
+main a:hover,.media-dialog a:hover{color:#fff}
+button{min-height:40px}
+.topbar .menu,.topbar .bell{min-width:44px;min-height:44px}
+.topbar .bell{margin-left:auto}
+.action-link,.highlight-actions a,.md-recordings td a,.insight-actions a,.library-player-controls a{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 14px;border:1px solid #343c42;border-radius:6px;text-decoration:none}
+.danger-action{color:var(--danger)!important;border-color:#71414c!important;background:transparent}
+.danger-action:hover{background:#48252e}
+.form-actions,.insight-actions,.highlight-actions,.library-player-controls{display:flex;align-items:center;gap:var(--action-gap);flex-wrap:wrap}
+.form-actions{margin-top:16px}
+.app main>.panel{margin-bottom:20px}
+.workspace-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}
+.workspace-toolbar strong{color:#f1f2f4;font-size:22px}
+.recording-workspace{display:grid;gap:20px}
+.recording-workspace .workspace-toolbar{margin:0}
+.recording-search{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.recording-search input{flex:1;max-width:480px}
+.recording-task{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:18px 0;border-top:1px solid var(--border)}
+.recording-task>div:first-child{min-width:0;flex:1;overflow-wrap:anywhere}
+.recording-task h3{margin:0 0 7px;font-size:15px}
+.recording-task p,.recording-task small{font-size:12px;color:var(--muted)}
+.recording-task .insight-actions{flex-shrink:0}
+.automation-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--border)}
+.recording-workspace .footnote{margin-top:12px}
+.md-recordings td:last-child>*+*{margin-left:8px}
+.highlight-configuration{border-bottom:1px solid var(--border);padding:12px 0;margin-bottom:16px}
+.highlight-configuration summary,.library-more-filters summary{min-height:40px;padding:10px 0;cursor:pointer}
+.library-browser .library-batch{position:static;gap:8px}
+.library-batch.no-selection>button,.library-batch.no-selection>span{display:none}
+.library-browser .content-row-actions{max-width:none;flex-wrap:nowrap;gap:8px}
+.library-browser .content-row-actions button{padding:8px 12px;white-space:nowrap}
+.library-player-controls .danger-action{order:10;margin-left:auto}
+.library-player-controls span{color:var(--muted)}
+.library-model-heading:empty{display:none}
+.model-actions{gap:6px;padding:10px 8px}
+.model-actions button{font-size:12px}
+.navigation-scrim{display:none}
+.modal-overlay{display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{width:min(470px,calc(100vw - 32px));min-width:0;max-height:calc(100dvh - 32px);overflow-y:auto}
+.modal>h2{padding-right:32px}
+.modal .model-recording{margin-bottom:0}
+.modal .model-recording form{display:grid;grid-template-columns:1fr;align-items:stretch}
+.modal .model-recording label{min-width:0;margin-top:0}
+.modal .model-recording form{margin-top:20px}
+@media(max-width:1100px) and (min-width:701px){
+ .library-browser .library-row{flex-wrap:wrap}
+ .library-browser .content-row-actions{margin-left:30px}
+}
+@media(max-width:700px){
+ .app main,.app.collapsed main{margin-left:0;padding:82px 16px 24px}
+ .app .sidebar{visibility:hidden;pointer-events:none;width:240px;transform:translateX(-100%);top:64px}
+ .app.collapsed .sidebar{visibility:visible;pointer-events:auto;width:240px;transform:none}
+ .app.collapsed .sidebar nav button{padding:12px 20px;min-height:58px;gap:16px}
+ .app.collapsed .sidebar nav button span{display:block;font-size:15px}
+ .app.collapsed .sidebar nav button small{font-size:12px}
+ .app.collapsed .sidebar .side-note{display:none}
+ .app.collapsed .navigation-scrim{display:block;position:fixed;inset:64px 0 0;z-index:14;border:0;border-radius:0;background:#0009}
+ .topbar .global-search{display:none}
+ .page-title{margin:0 0 18px}
+ .page-status{display:none}
+ button,input,select,.action-link{min-height:44px}
+ input[type=checkbox],input[type=radio]{min-height:0}
+ .model-grid{grid-template-columns:1fr;gap:16px}
+ .model-cover .identity{height:150px}
+ .cover-bottom strong{font-size:18px}
+ .cover-bottom{flex-direction:row;align-items:center}
+ .model-tags span{font-size:12px}
+ .model-actions{gap:8px;padding:10px 8px}
+ .model-actions button{font-size:12px;min-width:44px;min-height:50px}
+ .model-library{padding:12px 8px;gap:8px}
+ .model-library-label,.model-library-detail{font-size:12px}
+ .model-library-count small{display:inline;font-size:12px}
+ .model-library-count strong{font-size:21px}
+ .directory-filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .directory-filters>label:first-child{grid-column:1/-1}
+ .directory-filters label{font-size:12px}
+ .directory-filters input,.directory-filters select{font-size:14px}
+ .library-browser{padding:12px}
+ .library-browser .md-section-title>span{display:none}
+ .library-views{gap:8px;flex-wrap:wrap}
+ .library-views button{padding:8px 10px;font-size:12px}
+ .library-browser>.insight-filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+ .library-browser>.insight-filters>input{grid-column:1/-1}
+ .library-browser>.insight-filters>button{grid-column:1/-1}
+ .library-browser .content-row-actions{display:grid;grid-template-columns:1fr 1fr;width:100%;padding-left:30px;max-width:none}
+ .library-browser .library-row{flex-direction:row;flex-wrap:wrap}
+ .library-row-info{flex-basis:calc(100% - 35px)}
+ .library-player-controls{gap:8px}
+ .library-player-controls .danger-action{margin-left:0}
+ .library-pagination{font-size:12px}
+ .library-batch.no-selection{padding:8px}
+ .library-batch+p.muted{display:none}
+ .workspace-toolbar{flex-wrap:wrap}
+ .recording-task{align-items:flex-start;flex-direction:column;gap:12px}
+ .recording-search{align-items:stretch;flex-direction:column}
+ .recording-workspace .panel-head{flex-wrap:wrap}
+ .automation-row{align-items:flex-start;flex-wrap:wrap}
+ .md-section-title a{font-size:12px}
+ .modal .model-recording{padding:0;border:0;background:none}
+}
+
+.directory-advanced{grid-column:1/-1}.directory-advanced summary{cursor:pointer;color:var(--muted);padding:10px 0;min-height:44px}.directory-advanced>div{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:8px 0}.directory-filters{grid-template-columns:2fr 1fr 1fr;gap:12px}.directory-filters>button{justify-self:start}.directory-advanced label{display:grid;gap:8px}
+@media(max-width:700px){.directory-filters{grid-template-columns:1fr 1fr}.directory-advanced>div{grid-template-columns:1fr 1fr}.directory-filters>button{width:100%}}
+
+@media(max-width:700px){
+ .model-directory>.model-grid{grid-template-columns:1fr;gap:16px}
+ .model-directory .model-cover{aspect-ratio:16/9}
+ .model-directory .cover-bottom strong{font-size:18px}
+ .model-directory .cover-bottom span,.model-directory .model-tags span{font-size:12px}
+ .model-directory .model-actions{padding:10px 8px;gap:8px}
+ .model-directory .model-actions button{font-size:12px;min-width:0}
+ .model-directory .model-actions svg{width:18px;height:18px}
+ .library-views>button:nth-last-child(-n+2){display:none}
+ .app main{transition:none}
+}
